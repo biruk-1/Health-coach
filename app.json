@@ -1,0 +1,104 @@
+{
+  "expo": {
+    "name": "Health Coach",
+    "slug": "bolt-expo-nativewind",
+    "version": "1.0.0",
+    "developmentClient": true,
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "com.biruk123.boltexponativewind",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.biruk123.boltexponativewind",
+      "displayName": "Health Coach",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "This app uses Face ID to secure your account.",
+        "NSCameraUsageDescription": "This app uses the camera to scan QR codes.",
+        "NSPhotoLibraryUsageDescription": "This app uses the photo library to save QR codes.",
+        "NSLocationWhenInUseUsageDescription": "This app uses your location to provide personalized readings.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses your location to provide personalized readings.",
+        "NSLocationAlwaysUsageDescription": "This app uses your location to provide personalized readings.",
+        "NSLocationTemporaryUsageDescriptionDictionary": {
+          "LocationAccuracy": "This app uses precise location to provide accurate readings.",
+          "LocationAccuracyReduced": "This app uses approximate location to provide readings."
+        },
+        "NSLocationUsageDescription": "This app uses your location to provide personalized readings.",
+        "NSLocationDefaultAccuracyReduced": true,
+        "com.apple.developer.in-app-payments": [
+          "merchant.com.monamary.cosmicai"
+        ],
+        "com.apple.developer.in-app-payment-merchants": [
+          "merchant.com.monamary.cosmicai"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "associatedDomains": [
+        "applinks:com.biruk123.boltexponativewind"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "server",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.monamary.cosmicai"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiUrl": "http://192.168.222.139:3000/api",
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "461504a1-7b68-4350-83ee-7704e83edca8"
+      }
+    },
+    "android": {
+      "package": "com.biruk123.boltexponativewind",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "NFC"
+      ],
+      "googleServicesFile": "./google-services.json",
+      "config": {
+        "googlePay": {
+          "merchantName": "Cosmic AI",
+          "merchantId": "merchant.com.monamary.cosmicai",
+          "allowedCardNetworks": ["VISA", "MASTERCARD", "AMEX", "DISCOVER"],
+          "environment": "TEST",
+          "apiVersion": 2
+        }
+      },
+      "intentFilters": [
+        {
+          "action": "android.intent.action.VIEW",
+          "data": {
+            "scheme": "com.biruk123.boltexponativewind"
+          },
+          "category": [
+            "android.intent.category.DEFAULT",
+            "android.intent.category.BROWSABLE"
+          ]
+        }
+      ]
+    }
+  }
+}

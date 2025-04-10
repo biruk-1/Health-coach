@@ -1,0 +1,68 @@
+{
+  "cli": {
+    "version": ">= 16.0.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "ios": {
+        "resourceClass": "m-medium",
+        "simulator": true,
+        "enterpriseProvisioning": "universal"
+      },
+      "env": {
+        "NPM_FLAGS": "--legacy-peer-deps",
+        "EXPO_USE_COMMUNITY_AUTOLINKING": "1"
+      },
+      "cache": {
+        "key": "preview-3"
+      }
+    },
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleDebug",
+        "buildType": "apk"
+      },
+      "ios": {
+        "resourceClass": "m-medium",
+        "simulator": true,
+        "enterpriseProvisioning": "universal"
+      },
+      "env": {
+        "YARN_ENABLE_IMMUTABLE_INSTALLS": "false",
+        "NPM_FLAGS": "--legacy-peer-deps",
+        "EXPO_USE_COMMUNITY_AUTOLINKING": "1"
+      },
+      "cache": {
+        "key": "development-3"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "resourceClass": "m-medium",
+        "enterpriseProvisioning": "universal"
+      },
+      "env": {
+        "NPM_FLAGS": "--legacy-peer-deps",
+        "EXPO_USE_COMMUNITY_AUTOLINKING": "1"
+      },
+      "cache": {
+        "key": "production-3"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

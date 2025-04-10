@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Psychic Directory Admin</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-color: #121212;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    .login-container {
+      max-width: 400px;
+      margin: 100px auto;
+      padding: 30px;
+      border-radius: 10px;
+      background-color: #1e1e1e;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .admin-container {
+      max-width: 1200px;
+      margin: 50px auto;
+      padding: 30px;
+      border-radius: 10px;
+      background-color: #1e1e1e;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #333;
+    }
+    .btn-primary {
+      background-color: #6366f1;
+      border-color: #6366f1;
+    }
+    .btn-primary:hover {
+      background-color: #4f46e5;
+      border-color: #4f46e5;
+    }
+    .form-control {
+      background-color: #2d2d2d;
+      border-color: #444;
+      color: #e0e0e0;
+    }
+    .form-control:focus {
+      background-color: #2d2d2d;
+      border-color: #6366f1;
+      color: #e0e0e0;
+      box-shadow: 0 0 0 0.25rem rgba(99, 102, 241, 0.25);
+    }
+    .table {
+      color: #e0e0e0;
+    }
+    .table-dark {
+      --bs-table-bg: #252525;
+      --bs-table-striped-bg: #2d2d2d;
+      --bs-table-hover-bg: #333;
+    }
+    .badge {
+      font-size: 0.85em;
+      padding: 0.35em 0.65em;
+    }
+    .loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 200px;
+    }
+    .spinner-border {
+      color: #6366f1;
+    }
+    .error-message {
+      color: #ef4444;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Login Screen -->
+    <div id="login-screen" class="login-container">
+      <h2 class="text-center mb-4">Psychic Directory Admin</h2>
+      <form id="login-form">
+        <div class="mb-3">
+          <label for="username" class="form-label">Username</label>
+          <input type="text" class="form-control" id="username" placeholder="Enter admin username">
+        </div>
+        <div class="mb-3">
+          <label for="password" class="form-label">Password</label>
+          <input type="password" class="form-control" id="password" placeholder="Enter password">
+        </div>
+        <div id="login-error" class="error-message d-none"></div>
+        <button type="submit" id="login-btn" class="btn btn-primary w-100 mt-3">Login</button>
+      </form>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="admin-screen" class="admin-container d-none">
+      <div class="header">
+        <h2>User Management</h2>
+        <div>
+          <button id="refresh-btn" class="btn btn-outline-light me-2">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+          </button>
+          <button id="logout-btn" class="btn btn-outline-danger">
+            <i class="bi bi-box-arrow-right"></i> Logout
+          </button>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <div class="row">
+          <div class="col-md-4">
+            <div class="card bg-dark text-white mb-3">
+              <div class="card-body">
+                <h5 class="card-title">Total Users</h5>
+                <h2 id="total-users" class="card-text">-</h2>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card bg-dark text-white mb-3">
+              <div class="card-body">
+                <h5 class="card-title">Regular Users</h5>
+                <h2 id="regular-users" class="card-text">-</h2>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card bg-dark text-white mb-3">
+              <div class="card-body">
+                <h5 class="card-title">Psychic Users</h5>
+                <h2 id="psychic-users" class="card-text">-</h2>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <input type="text" id="search-input" class="form-control" placeholder="Search by name or email...">
+      </div>
+
+      <div id="loading" class="loading">
+        <div class="spinner-border" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+      </div>
+
+      <div id="error-container" class="alert alert-danger d-none" role="alert"></div>
+
+      <div id="users-table-container" class="d-none">
+        <table class="table table-dark table-striped table-hover">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Registration Date</th>
+              <th>Birth Info</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-table-body">
+            <!-- User rows will be inserted here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+  <!-- <script>
+    // Admin credentials (in a real app, this would be handled server-side)
+    const ADMIN_USERNAME = 'admin';
+    const ADMIN_PASSWORD = 'admin123';
+
+    // Supabase configuration
+    const SUPABASE_URL = 'https://wtszbjtbfctwgnprzows.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0c3pianRiZmN0d2ducHJ6b3dzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA2MDc3NDYsImV4cCI6MjA1NjE4Mzc0Nn0.igEZ9IUTNl_SCS6xFOZb7tTHtcZRPoyebD8HizvOI0o';
+    
+    // Initialize Supabase client
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // DOM elements
+    const loginScreen = document.getElementById('login-screen');
+    const adminScreen = document.getElementById('admin-screen');
+    const loginForm = document.getElementById('login-form');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('login-btn');
+    const loginError = document.getElementById('login-error');
+    const logoutBtn = document.getElementById('logout-btn');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const searchInput = document.getElementById('search-input');
+    const loadingElement = document.getElementById('loading');
+    const errorContainer = document.getElementById('error-container');
+    const usersTableContainer = document.getElementById('users-table-container');
+    const usersTableBody = document.getElementById('users-table-body');
+    const totalUsersElement = document.getElementById('total-users');
+    const regularUsersElement = document.getElementById('regular-users');
+    const psychicUsersElement = document.getElementById('psychic-users');
+
+    // Check if user is already logged in
+    function checkAuth() {
+      const isLoggedIn = localStorage.getItem('admin_logged_in') === 'true';
+      if (isLoggedIn) {
+        showAdminScreen();
+        fetchUsers();
+      } else {
+        showLoginScreen();
+      }
+    }
+
+    // Show login screen
+    function showLoginScreen() {
+      loginScreen.classList.remove('d-none');
+      adminScreen.classList.add('d-none');
+    }
+
+    // Show admin screen
+    function showAdminScreen() {
+      loginScreen.classList.add('d-none');
+      adminScreen.classList.remove('d-none');
+    }
+
+    // Handle login form submission
+    loginForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value.trim();
+
+      if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+        localStorage.setItem('admin_logged_in', 'true');
+        loginError.classList.add('d-none');
+        showAdminScreen();
+        fetchUsers();
+      } else {
+        loginError.textContent = 'Invalid username or password';
+        loginError.classList.remove('d-none');
+      }
+    });
+
+    // Handle logout
+    logoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('admin_logged_in');
+      showLoginScreen();
+    });
+
+    // Handle refresh
+    refreshBtn.addEventListener('click', () => {
+      fetchUsers();
+    });
+
+    // Handle search
+    searchInput.addEventListener('input', () => {
+      const searchTerm = searchInput.value.toLowerCase();
+      const rows = usersTableBody.querySelectorAll('tr');
+      
+      rows.forEach(row => {
+        const name = row.querySelector('[data-name]').getAttribute('data-name').toLowerCase();
+        const email = row.querySelector('[data-email]').getAttribute('data-email').toLowerCase();
+        
+        if (name.includes(searchTerm) || email.includes(searchTerm)) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    });
+
+    // Fetch users from Supabase
+    async function fetchUsers() {
+      try {
+        // Show loading state
+        loadingElement.classList.remove('d-none');
+        usersTableContainer.classList.add('d-none');
+        errorContainer.classList.add('d-none');
+
+        // Fetch users from Supabase
+        const { data: users, error } = await supabase
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Update stats
+        const totalUsers = users.length;
+        const regularUsers = users.filter(user => user.role === 'user').length;
+        const psychicUsers = users.filter(user => user.role === 'psychic').length;
+
+        totalUsersElement.textContent = totalUsers;
+        regularUsersElement.textContent = regularUsers;
+        psychicUsersElement.textContent = psychicUsers;
+
+        // Render users table
+        renderUsersTable(users);
+
+        // Hide loading state
+        loadingElement.classList.add('d-none');
+        usersTableContainer.classList.remove('d-none');
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        loadingElement.classList.add('d-none');
+        errorContainer.textContent = `Error fetching users: ${error.message}`;
+        errorContainer.classList.remove('d-none');
+      }
+    }
+
+    // Render users table
+    function renderUsersTable(users) {
+      usersTableBody.innerHTML = '';
+
+      users.forEach(user => {
+        const row = document.createElement('tr');
+        
+        // Format date
+        const createdAt = new Date(user.created_at);
+        const formattedDate = createdAt.toLocaleDateString() + ' ' + createdAt.toLocaleTimeString();
+        
+        // Format birth info
+        let birthInfo = 'Not provided';
+        if (user.birth_date) {
+          birthInfo = `Date: ${user.birth_date}`;
+          if (user.birth_time) birthInfo += `, Time: ${user.birth_time}`;
+          if (user.birth_location) birthInfo += `, Location: ${user.birth_location}`;
+        }
+
+        // Create role badge
+        const roleBadge = document.createElement('span');
+        roleBadge.classList.add('badge');
+        
+        if (user.role === 'psychic') {
+          roleBadge.classList.add('bg-purple');
+          roleBadge.style.backgroundColor = '#9333ea';
+        } else if (user.role === 'admin') {
+          roleBadge.classList.add('bg-danger');
+        } else {
+          roleBadge.classList.add('bg-primary');
+        }
+        
+        roleBadge.textContent = user.role;
+
+        row.innerHTML = `
+          <td data-name="${user.full_name}">${user.full_name}</td>
+          <td data-email="${user.email}">${user.email}</td>
+          <td>${roleBadge.outerHTML}</td>
+          <td>${formattedDate}</td>
+          <td>${birthInfo}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-info view-btn" data-id="${user.id}">View</button>
+          </td>
+        `;
+
+        usersTableBody.appendChild(row);
+      });
+
+      // Add event listeners to view buttons
+      document.querySelectorAll('.view-btn').forEach(button => {
+        button.addEventListener('click', () => {
+          const userId = button.getAttribute('data-id');
+          viewUserDetails(userId);
+        });
+      });
+    }
+
+    // View user details
+    function viewUserDetails(userId) {
+      // In a real app, this would open a modal with detailed user information
+      alert(`View user details for ID: ${userId}\n\nThis functionality would be expanded in a production version.`);
+    }
+
+    // Initialize the app
+    document.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+    });
+  </script> -->
+  <script>
+    const ADMIN_USERNAME = 'admin';
+    const ADMIN_PASSWORD = 'admin123';
+  
+    const supabase = { from: () => ({ select: () => ({ order: () => ({}) }) }) }; // Dummy Supabase for compatibility
+  
+    const loginScreen = document.getElementById('login-screen');
+    const adminScreen = document.getElementById('admin-screen');
+    const loginForm = document.getElementById('login-form');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('login-btn');
+    const loginError = document.getElementById('login-error');
+    const logoutBtn = document.getElementById('logout-btn');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const searchInput = document.getElementById('search-input');
+    const loadingElement = document.getElementById('loading');
+    const errorContainer = document.getElementById('error-container');
+    const usersTableContainer = document.getElementById('users-table-container');
+    const usersTableBody = document.getElementById('users-table-body');
+    const totalUsersElement = document.getElementById('total-users');
+    const regularUsersElement = document.getElementById('regular-users');
+    const psychicUsersElement = document.getElementById('psychic-users');
+  
+    function checkAuth() {
+      const isLoggedIn = localStorage.getItem('admin_logged_in') === 'true';
+      if (isLoggedIn) {
+        showAdminScreen();
+        fetchUsers();
+      } else {
+        showLoginScreen();
+      }
+    }
+  
+    function showLoginScreen() {
+      loginScreen.classList.remove('d-none');
+      adminScreen.classList.add('d-none');
+    }
+  
+    function showAdminScreen() {
+      console.log('Switching to admin screen');
+      loginScreen.classList.add('d-none');
+      adminScreen.classList.remove('d-none');
+    }
+  
+    loginForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      console.log('Form submitted');
+      
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value.trim();
+      console.log('Username:', username, 'Password:', password);
+  
+      if (username.toLowerCase() === ADMIN_USERNAME.toLowerCase() && password === ADMIN_PASSWORD) {
+        console.log('Login successful');
+        localStorage.setItem('admin_logged_in', 'true');
+        loginError.classList.add('d-none');
+        showAdminScreen();
+        fetchUsers();
+      } else {
+        console.log('Login failed');
+        loginError.textContent = 'Invalid username or password';
+        loginError.classList.remove('d-none');
+      }
+    });
+  
+    logoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('admin_logged_in');
+      showLoginScreen();
+    });
+  
+    refreshBtn.addEventListener('click', () => {
+      fetchUsers();
+    });
+  
+    searchInput.addEventListener('input', () => {
+      const searchTerm = searchInput.value.toLowerCase();
+      const rows = usersTableBody.querySelectorAll('tr');
+      rows.forEach(row => {
+        const name = row.querySelector('[data-name]').getAttribute('data-name').toLowerCase();
+        const email = row.querySelector('[data-email]').getAttribute('data-email').toLowerCase();
+        row.style.display = (name.includes(searchTerm) || email.includes(searchTerm)) ? '' : 'none';
+      });
+    });
+  
+    async function fetchUsers() {
+      console.log('Fetching users');
+      try {
+        loadingElement.classList.remove('d-none');
+        usersTableContainer.classList.add('d-none');
+        errorContainer.classList.add('d-none');
+  
+        const mockUsers = [
+          { id: 1, full_name: 'John Doe', email: 'john@example.com', role: 'user', created_at: '2023-01-01T10:00:00', birth_date: '1990-01-01' },
+          { id: 2, full_name: 'Jane Psychic', email: 'jane@example.com', role: 'psychic', created_at: '2023-02-01T12:00:00', birth_date: '1985-05-05' }
+        ];
+  
+        const totalUsers = mockUsers.length;
+        const regularUsers = mockUsers.filter(user => user.role === 'user').length;
+        const psychicUsers = mockUsers.filter(user => user.role === 'psychic').length;
+  
+        totalUsersElement.textContent = totalUsers;
+        regularUsersElement.textContent = regularUsers;
+        psychicUsersElement.textContent = psychicUsers;
+  
+        renderUsersTable(mockUsers);
+  
+        loadingElement.classList.add('d-none');
+        usersTableContainer.classList.remove('d-none');
+      } catch (error) {
+        console.error('Error:', error);
+        loadingElement.classList.add('d-none');
+        errorContainer.textContent = `Error: ${error.message}`;
+        errorContainer.classList.remove('d-none');
+      }
+    }
+  
+    function renderUsersTable(users) {
+      usersTableBody.innerHTML = '';
+      users.forEach(user => {
+        const row = document.createElement('tr');
+        const createdAt = new Date(user.created_at);
+        const formattedDate = createdAt.toLocaleDateString() + ' ' + createdAt.toLocaleTimeString();
+        let birthInfo = 'Not provided';
+        if (user.birth_date) {
+          birthInfo = `Date: ${user.birth_date}`;
+          if (user.birth_time) birthInfo += `, Time: ${user.birth_time}`;
+          if (user.birth_location) birthInfo += `, Location: ${user.birth_location}`;
+        }
+  
+        const roleBadge = document.createElement('span');
+        roleBadge.classList.add('badge');
+        roleBadge.textContent = user.role;
+        if (user.role === 'psychic') {
+          roleBadge.style.backgroundColor = '#9333ea';
+        } else if (user.role === 'admin') {
+          roleBadge.classList.add('bg-danger');
+        } else {
+          roleBadge.classList.add('bg-primary');
+        }
+  
+        row.innerHTML = `
+          <td data-name="${user.full_name}">${user.full_name}</td>
+          <td data-email="${user.email}">${user.email}</td>
+          <td>${roleBadge.outerHTML}</td>
+          <td>${formattedDate}</td>
+          <td>${birthInfo}</td>
+          <td><button class="btn btn-sm btn-outline-info view-btn" data-id="${user.id}">View</button></td>
+        `;
+        usersTableBody.appendChild(row);
+      });
+  
+      document.querySelectorAll('.view-btn').forEach(button => {
+        button.addEventListener('click', () => {
+          const userId = button.getAttribute('data-id');
+          viewUserDetails(userId);
+        });
+      });
+    }
+  
+    function viewUserDetails(userId) {
+      alert(`View user details for ID: ${userId}\n\nThis would show more in a full version.`);
+    }
+  
+    document.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+    });
+  </script>
+</body>
+</html>
