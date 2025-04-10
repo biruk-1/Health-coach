@@ -80,7 +80,7 @@ export default function CoachOnboardingScreen() {
     } else {
       setArray([...array, item]);
     }
-  };
+  };        
 
   const pickImage = async (setState: React.Dispatch<React.SetStateAction<string | null>>) => {
     const result = await ImagePicker.launchImageLibraryAsync({
