@@ -192,23 +192,40 @@ export const getHealthCoaches = async (params: HealthCoachSearchParams = {}) => 
 export const getCoachById = async (id: string): Promise<HealthCoach | null> => {
   try {
     console.log(`Fetching coach with ID ${id} from Digital Ocean API`);
-    
-    const response = await fetch(`${API_BASE_URL}/health-coaches/${id}`);
-    
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.log(`Coach with ID ${id} not found`);
-        return null;
-      }
-      throw new Error(`API error: ${response.status}`);
-    }
-    
-    const coach = await response.json();
-    console.log(`Successfully fetched coach details for ${coach.name}`);
-    
-    return coach;
+
+    // Create a timeout promise that rejects after 5 seconds
+    const timeout = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Digital Ocean API request timed out'));
+      }, 5000);
+    });
+
+    // Create the fetch promise
+    const fetchPromise = fetch(`${API_BASE_URL}/health-coaches/${id}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.log(`Coach with ID ${id} not found`);
+            return null;
+          }
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const coach = await response.json();
+        console.log(`Successfully fetched coach details for ${coach.name}`);
+        return coach;
+      });
+
+    // Race between fetch and timeout
+    return await Promise.race([fetchPromise, timeout]) as HealthCoach;
   } catch (error) {
-    console.error('Failed to fetch coach by ID:', error);
+    if (error.message === 'Digital Ocean API request timed out') {
+      console.error('Digital Ocean API request timed out after 5 seconds');
+    } else if (error instanceof TypeError && error.message.includes('Network request failed')) {
+      console.error('Digital Ocean network connection failed - server may be down');
+    } else {
+      console.error('Failed to fetch coach by ID:', error);
+    }
     return null;
   }
 }; 

@@ -101,7 +101,7 @@ export default function HealthCoachProfile() {
       // Check cache first - prioritize cache for instant loading
       const cachedCoach = getCachedCoach(id as string);
       if (cachedCoach) {
-        console.log('Using cached coach data');
+        console.log('Using cached coach data for immediate display');
         // Use cached data immediately for instant rendering
         setCoach(cachedCoach);
         setLoading(false);
@@ -113,40 +113,35 @@ export default function HealthCoachProfile() {
         } catch (err) {
           console.error('Failed to check favorite status:', err);
         }
+      }
+      
+      // Always try to load from Digital Ocean, even if we have cache
+      try {
+        console.log('Fetching coach with ID from Digital Ocean:', id);
+        const coachData = await getCoachById(id as string);
         
-        // Refresh in background if cache is older than 5 minutes
-        const cacheEntry = coachCache.get(id as string);
-        const cacheAge = Date.now() - (cacheEntry?.timestamp || 0);
-        if (cacheAge > 5 * 60 * 1000) {
-          console.log('Refreshing coach data in background');
-          getCoachById(id as string)
-            .then(freshData => {
-              if (freshData) {
-                setCachedCoach(id as string, freshData);
-                setCoach(freshData);
-              }
-            })
-            .catch(err => console.error('Background refresh error:', err));
+        if (coachData) {
+          console.log('Successfully loaded coach data from Digital Ocean');
+          // Cache the data
+          setCachedCoach(id as string, coachData);
+          setCoach(coachData);
+          
+          // Check favorite status
+          const isFav = await isFavorite(id as string);
+          setFavorited(isFav);
+        } else {
+          throw new Error('Could not find the health coach profile');
         }
+      } catch (digitalOceanError) {
+        console.error('Failed to load coach data from Digital Ocean:', digitalOceanError);
         
-        return;
+        // If we didn't already set coach data from cache and Digital Ocean failed
+        if (!cachedCoach) {
+          throw new Error('Could not load coach data. Please check your connection and try again.');
+        } else {
+          console.log('⚠️ Falling back to cached data for coach');
+        }
       }
-
-      // Load from database
-      console.log('Fetching coach with ID:', id);
-      const coachData = await getCoachById(id as string);
-      
-      if (!coachData) {
-        throw new Error('Could not find the health coach profile');
-      }
-
-      // Cache the data
-      setCachedCoach(id as string, coachData);
-      setCoach(coachData);
-      
-      // Check favorite status
-      const isFav = await isFavorite(id as string);
-      setFavorited(isFav);
 
     } catch (err: any) {
       console.error('Failed to load coach data:', err);

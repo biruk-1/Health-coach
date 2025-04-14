@@ -612,10 +612,25 @@ export const fallbackGetHealthCoaches = async (
 export const getCoachById = async (id: string): Promise<HealthCoach | null> => {
   try {
     console.log('🌟 Using Digital Ocean API for coach details');
-    // Use the Digital Ocean API instead of Supabase
-    return await apiGetCoachById(id);
+    
+    // Create a timeout promise that rejects after 5 seconds
+    const timeoutPromise = new Promise<HealthCoach | null>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Digital Ocean API request timed out after 5 seconds'));
+      }, 5000);
+    });
+    
+    // Regular API call
+    const apiPromise = apiGetCoachById(id);
+    
+    // Race between the API call and timeout
+    return await Promise.race([apiPromise, timeoutPromise]);
   } catch (error) {
-    console.error('Error fetching coach by ID from Digital Ocean:', error);
+    if (error.message && error.message.includes('timed out')) {
+      console.error('Error: Digital Ocean API request timed out');
+    } else {
+      console.error('Error fetching coach by ID from Digital Ocean:', error);
+    }
     console.log('⚠️ Falling back to local cache for coach details');
     
     // Fall back to the original implementation
