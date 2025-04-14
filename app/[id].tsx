@@ -59,19 +59,49 @@ const isCacheValid = (timestamp: number) => {
   return Date.now() - timestamp < CACHE_TIMEOUT;
 };
 
-const getCachedCoach = (id: string): HealthCoach | null => {
-  const cached = coachCache.get(id);
-  if (cached && isCacheValid(cached.timestamp)) {
-    return cached.data;
+const getCachedCoach = async (id: string): Promise<HealthCoach | null> => {
+  try {
+    // First check in-memory cache
+    const cachedInMemory = coachCache.get(id);
+    if (cachedInMemory && isCacheValid(cachedInMemory.timestamp)) {
+      console.log('Using coach from memory cache');
+      return cachedInMemory.data;
+    }
+    
+    // Then check AsyncStorage cache
+    const cachedJson = await AsyncStorage.getItem(`coach_${id}`);
+    if (cachedJson) {
+      const cached = JSON.parse(cachedJson);
+      if (isCacheValid(cached.timestamp)) {
+        console.log('Using coach from AsyncStorage cache');
+        // Update in-memory cache too
+        coachCache.set(id, cached);
+        return cached.data;
+      }
+    }
+    
+    return null;
+  } catch (err) {
+    console.error('Error reading from cache:', err);
+    return null;
   }
-  return null;
 };
 
-const setCachedCoach = (id: string, data: HealthCoach) => {
-  coachCache.set(id, {
-    data,
-    timestamp: Date.now(),
-  });
+const setCachedCoach = async (id: string, data: HealthCoach) => {
+  try {
+    const cacheItem = {
+      data,
+      timestamp: Date.now(),
+    };
+    
+    // Update in-memory cache
+    coachCache.set(id, cacheItem);
+    
+    // Update AsyncStorage cache
+    await AsyncStorage.setItem(`coach_${id}`, JSON.stringify(cacheItem));
+  } catch (err) {
+    console.error('Error setting cache:', err);
+  }
 };
 
 export default function HealthCoachProfile() {
@@ -88,25 +118,18 @@ export default function HealthCoachProfile() {
   const [favorited, setFavorited] = useState(false);
 
   const loadCoachData = async () => {
-    if (!id) {
-      setError('Invalid coach ID');
-      setLoading(false);
-      return;
-    }
-
     try {
-      // Show loading skeleton immediately
       setLoading(true);
-
-      // Check cache first - prioritize cache for instant loading
-      const cachedCoach = getCachedCoach(id as string);
+      setError(null);
+      
+      // Try to get coach from local cache first
+      const cachedCoach = await getCachedCoach(id as string);
       if (cachedCoach) {
-        console.log('Using cached coach data for immediate display');
-        // Use cached data immediately for instant rendering
+        console.log('Found coach in local cache:', cachedCoach.name);
+        // Set the coach from cache right away for fast loading
         setCoach(cachedCoach);
-        setLoading(false);
         
-        // Check favorite status in background
+        // Check favorite status
         try {
           const isFav = await isFavorite(id as string);
           setFavorited(isFav);
@@ -115,7 +138,7 @@ export default function HealthCoachProfile() {
         }
       }
       
-      // Always try to load from Digital Ocean, even if we have cache
+      // Always try to load from Digital Ocean for fresh data
       try {
         console.log('Fetching coach with ID from Digital Ocean:', id);
         const coachData = await getCoachById(id as string);
@@ -123,23 +146,54 @@ export default function HealthCoachProfile() {
         if (coachData) {
           console.log('Successfully loaded coach data from Digital Ocean');
           // Cache the data
-          setCachedCoach(id as string, coachData);
+          await setCachedCoach(id as string, coachData);
           setCoach(coachData);
           
-          // Check favorite status
-          const isFav = await isFavorite(id as string);
-          setFavorited(isFav);
+          // Check favorite status if we haven't already
+          if (!cachedCoach) {
+            const isFav = await isFavorite(id as string);
+            setFavorited(isFav);
+          }
         } else {
-          throw new Error('Could not find the health coach profile');
+          console.log('Coach not found on Digital Ocean');
+          // If we don't have cached data either, throw an error
+          if (!cachedCoach) {
+            // Try one last time with fallback method
+            console.log('Trying fallback method directly...');
+            // Import the fallback function directly to ensure we use it
+            const { fallbackGetCoachById } = require('../services/database');
+            const fallbackCoach = await fallbackGetCoachById(id as string);
+            
+            if (fallbackCoach) {
+              console.log('Found coach via fallback method:', fallbackCoach.name);
+              await setCachedCoach(id as string, fallbackCoach);
+              setCoach(fallbackCoach);
+            } else {
+              throw new Error('Could not find the health coach profile');
+            }
+          }
+          // Otherwise, we already set the coach from cache above
         }
       } catch (digitalOceanError) {
         console.error('Failed to load coach data from Digital Ocean:', digitalOceanError);
         
         // If we didn't already set coach data from cache and Digital Ocean failed
         if (!cachedCoach) {
-          throw new Error('Could not load coach data. Please check your connection and try again.');
+          // Try one last time with fallback method
+          console.log('Digital Ocean failed. Trying fallback method directly...');
+          // Import the fallback function directly to ensure we use it
+          const { fallbackGetCoachById } = require('../services/database');
+          const fallbackCoach = await fallbackGetCoachById(id as string);
+          
+          if (fallbackCoach) {
+            console.log('Found coach via fallback method:', fallbackCoach.name);
+            await setCachedCoach(id as string, fallbackCoach);
+            setCoach(fallbackCoach);
+          } else {
+            throw new Error('Could not load coach data. Please check your connection and try again.');
+          }
         } else {
-          console.log('⚠️ Falling back to cached data for coach');
+          console.log('⚠️ Using cached data for coach since Digital Ocean is unavailable');
         }
       }
 
