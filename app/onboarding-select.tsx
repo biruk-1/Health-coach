@@ -12,22 +12,30 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../context/AuthContext';
 
 export default function OnboardingSelectScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+
+  // Ensure the user is authenticated
+  if (!user) {
+    // This check is just for safety - the navigation guard should already handle this
+    router.replace('/onboarding');
+    return null;
+  }
 
   const handleUserSelect = () => {
-    router.push('/user-onboarding');
+    router.replace('/user-onboarding');
   };
 
   const handleCoachSelect = () => {
-    router.push('/coach-onboarding');
+    router.replace('/coach-onboarding');
   };
 
-  const handleBack = () => {
-    router.back();
-  };
+  // No longer need back button to onboarding since this is post-registration
+  // User should either choose a path or logout if they want to start over
 
   return (
     <SafeAreaView style={styles.container}>
@@ -39,10 +47,7 @@ export default function OnboardingSelectScreen() {
         end={{ x: 1, y: 1 }}
         style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}
       >
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Choose Your Path</Text>
+        <Text style={styles.headerTitle}>Personalize Your Experience</Text>
       </LinearGradient>
       
       <View style={[styles.content, { paddingTop: Math.max(insets.top + 20, 40) }]}>
@@ -111,14 +116,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
   },
   headerTitle: {
     fontSize: 20,

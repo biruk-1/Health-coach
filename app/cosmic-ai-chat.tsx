@@ -16,10 +16,11 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { generateAstrologicalResponse } from '../services/openai';
+import { generateHealthCoachingResponse } from '../services/openai';
 import { useAuth } from '../context/AuthContext';
 import { usePurchases } from '../context/PurchaseContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getRandomHealthCoachesForSpecialty } from '../services/health-coach-data';
 
 type Message = {
   id: string;
@@ -31,7 +32,7 @@ type Message = {
   showSummary?: boolean;
 };
 
-export default function FitnessChatScreen() {
+export default function HealthCoachChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { balance, setBalance } = usePurchases();
@@ -49,10 +50,14 @@ export default function FitnessChatScreen() {
     const loadBalance = async () => {
       try {
         const storedBalance = await AsyncStorage.getItem('credits_balance');
-        const currentBalance = storedBalance ? parseInt(storedBalance, 0) : 0;
-        setBalance(currentBalance);
+        const newBalance = storedBalance ? parseInt(storedBalance, 10) : 0;
+        setBalance(newBalance);
+        if (newBalance <= 0) {
+          router.push('/cosmic-ai-subscription');
+        }
       } catch (error) {
         console.error('Error loading balance:', error);
+        router.push('/cosmic-ai-subscription');
       }
     };
     loadBalance();
@@ -60,27 +65,23 @@ export default function FitnessChatScreen() {
 
   // Update welcome message
   useEffect(() => {
-    if (isInitialLoad && balance >= 0) {
-      let welcomeMessage = "Hello! I'm your personal AI fitness coach. Purchase credits to get personalized fitness guidance! (1 credit per question)";
-      if (user && user.birthDate) {
-        const birthDate = new Date(user.birthDate);
-        welcomeMessage = `Hello${user.fullName ? ' ' + user.fullName.split(' ')[0] : ''}! I'm your personal AI fitness coach. I see you were born on ${birthDate.toLocaleDateString()}${user.birthLocation ? ' in ' + user.birthLocation : ''}. Purchase credits to get personalized fitness guidance! (1 credit per question)`;
+    if (isInitialLoad && balance > 0) {
+      let welcomeMessage = "Hello! I'm your personal AI health coach. How can I help you today?";
+      if (user && user.fullName) {
+        welcomeMessage = `Hello ${user.fullName.split(' ')[0]}! I'm your personal AI health coach. How can I help you today?`;
       }
       setMessages([{
         id: '1',
         text: welcomeMessage,
         sender: 'ai',
         timestamp: new Date(),
-        spotlight: ["Personal AI fitness coach at your service", "Get personalized workout and nutrition advice", "1 credit per question"],
-        actions: ["Get a personalized workout plan", "Ask about nutrition advice", "Get form correction tips"],
+        spotlight: ["Personal AI health coach at your service", "Get personalized workout and nutrition advice"],
+        actions: ["Get a personalized workout plan", "Ask about nutrition advice", "Get wellness tips"],
         showSummary: false,
       }]);
       setIsInitialLoad(false);
     }
-    if (balance === 0 && !isInitialLoad) {
-      router.push('/fitness-subscription');
-    }
-  }, [balance, user, isInitialLoad]);
+  }, [user, isInitialLoad, balance]);
 
   // Sync balance when returning from subscription screen
   useFocusEffect(
@@ -88,14 +89,14 @@ export default function FitnessChatScreen() {
       const syncBalance = async () => {
         try {
           const storedBalance = await AsyncStorage.getItem('credits_balance');
-          const newBalance = storedBalance ? parseInt(storedBalance, 0) : 0;
+          const newBalance = storedBalance ? parseInt(storedBalance, 10) : 0;
           setBalance(newBalance);
-          console.log('Synced balance after subscription:', newBalance);
-          if (newBalance === 0 && !isInitialLoad) {
-            router.push('/fitness-subscription');
+          if (newBalance <= 0) {
+            router.push('/cosmic-ai-subscription');
           }
         } catch (error) {
           console.error('Error syncing balance:', error);
+          router.push('/cosmic-ai-subscription');
         }
       };
       syncBalance();
@@ -114,13 +115,14 @@ export default function FitnessChatScreen() {
   }, [isError, retryCount]);
 
   const handleSend = async (query?: string) => {
-    if (balance === 0) {
-      router.push('/fitness-subscription');
-      return;
-    }
-
     const userQuery = (query || message).trim();
     if (!userQuery || isTyping) return;
+
+    // Check balance before sending
+    if (balance <= 0) {
+      router.push('/cosmic-ai-subscription');
+      return;
+    }
 
     const newUserMessage: Message = {
       id: Date.now().toString(),
@@ -135,13 +137,17 @@ export default function FitnessChatScreen() {
 
     try {
       console.log('Sending query:', userQuery);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulated delay
-      const response = await generateAstrologicalResponse(userQuery);
+      const response = await generateHealthCoachingResponse(userQuery);
       console.log('Response:', response);
 
       if (!response || !response.mainResponse) {
         throw new Error('Empty or invalid response from AI');
       }
+
+      // Deduct one credit after successful response
+      const newBalance = balance - 1;
+      setBalance(newBalance);
+      await AsyncStorage.setItem('credits_balance', newBalance.toString());
 
       const newAiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -153,18 +159,19 @@ export default function FitnessChatScreen() {
         showSummary: false,
       };
       setMessages(prev => [...prev, newAiMessage]);
-
-      const newBalance = balance - 1;
-      await AsyncStorage.setItem('credits_balance', newBalance.toString());
-      setBalance(newBalance);
       setRetryCount(0);
       setIsError(false);
-    } catch (error) {
+
+      // Check if balance is depleted after sending
+      if (newBalance <= 0) {
+        router.push('/cosmic-ai-subscription');
+      }
+    } catch (error: any) {
       console.error('Error generating response:', error);
       setIsError(true);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: `Oops! Something went wrong: ${error.message}. Please try again.`,
+        text: `Oops! Something went wrong: ${error.message || 'Unknown error'}. Please try again.`,
         sender: 'ai',
         timestamp: new Date(),
         spotlight: ["Error occurred", "Try again or ask differently"],
@@ -200,7 +207,7 @@ export default function FitnessChatScreen() {
     <View style={[styles.messageContainer, item.sender === 'user' ? styles.userMessage : styles.aiMessage]}>
       {item.sender === 'ai' && (
         <View style={styles.aiAvatar}>
-          <Ionicons name="sparkles" size={16} color="#ffffff" />
+          <Ionicons name="fitness" size={16} color="#ffffff" />
         </View>
       )}
       <View style={styles.messageContent}>
@@ -223,7 +230,7 @@ export default function FitnessChatScreen() {
               ))}
             </View>
             <View style={styles.summarySection}>
-              <Text style={styles.summaryTitle}>🔮 Actions</Text>
+              <Text style={styles.summaryTitle}>🏋️ Actions</Text>
               {item.actions.map((action, index) => (
                 <View key={index} style={styles.bulletPoint}>
                   <Text style={styles.bulletDot}>•</Text>
@@ -238,23 +245,21 @@ export default function FitnessChatScreen() {
     </View>
   );
 
-  const showBirthInfoPrompt = () => {
-    if (user && !user.birthDate) {
+  const showProfilePrompt = () => {
+    if (user && !user.fullName) {
       Alert.alert(
         "Complete Your Profile",
-        "For more personalized readings, add your birth date, time, and location in settings.",
+        "For more personalized guidance, complete your profile in settings.",
         [
           { text: "Later" },
           { text: "Go to Settings", onPress: () => router.push('/settings/account') }
         ]
       );
     } else {
-      const birthInfo = [];
-      if (user?.birthDate) birthInfo.push(`Birth Date: ${new Date(user.birthDate).toLocaleDateString()}`);
-      if (user?.birthTime) birthInfo.push(`Birth Time: ${new Date(user.birthTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
-      if (user?.birthLocation) birthInfo.push(`Birth Location: ${user.birthLocation}`);
-      if (birthInfo.length > 0) {
-        Alert.alert("Your Birth Information", birthInfo.join('\n'), [
+      const profileInfo = [];
+      if (user?.fullName) profileInfo.push(`Name: ${user.fullName}`);
+      if (profileInfo.length > 0) {
+        Alert.alert("Your Profile Information", profileInfo.join('\n'), [
           { text: "OK" },
           { text: "Edit", onPress: () => router.push('/settings/account') }
         ]);
@@ -293,22 +298,22 @@ export default function FitnessChatScreen() {
             <Ionicons name="arrow-back" size={24} color="#ffffff" />
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Cosmic AI</Text>
+            <Text style={styles.headerTitle}>Health Coach AI</Text>
           </View>
-          <TouchableOpacity style={styles.infoButton} onPress={showBirthInfoPrompt}>
+          <TouchableOpacity style={styles.infoButton} onPress={showProfilePrompt}>
             <Ionicons name="information-circle-outline" size={24} color="#6366f1" />
           </TouchableOpacity>
         </View>
         <View style={styles.creditPrompt}>
           <Text style={styles.creditPromptText}>
-            You have no credits! Purchase credits to ask Cosmic AI questions.
+            Welcome to Health Coach AI! You can now chat freely for testing.
           </Text>
           <TouchableOpacity
             style={styles.creditButton}
-            onPress={() => router.push('/fitness-subscription')}
+            onPress={() => router.push('/cosmic-ai-chat')}
           >
-            <Text style={styles.creditButtonText}>Get Credits</Text>
-            <Ionicons name="wallet" size={20} color="#ffffff" style={styles.buttonIcon} />
+            <Text style={styles.creditButtonText}>Start Chatting</Text>
+            <Ionicons name="chatbubbles" size={20} color="#ffffff" style={styles.buttonIcon} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -323,13 +328,13 @@ export default function FitnessChatScreen() {
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Cosmic AI</Text>
+          <Text style={styles.headerTitle}>Health Coach AI</Text>
           <View style={styles.statusContainer}>
             <View style={styles.statusDot} />
             <Text style={styles.statusText}>Online • {balance} Credits</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.infoButton} onPress={showBirthInfoPrompt}>
+        <TouchableOpacity style={styles.infoButton} onPress={showProfilePrompt}>
           <Ionicons name="information-circle-outline" size={24} color="#6366f1" />
         </TouchableOpacity>
       </View>
@@ -344,7 +349,7 @@ export default function FitnessChatScreen() {
       />
       {isTyping && (
         <View style={styles.typingIndicator}>
-          <Text style={styles.typingText}>Cosmic AI is typing</Text>
+          <Text style={styles.typingText}>Health Coach AI is typing</Text>
           <ActivityIndicator size="small" color="#6366f1" />
         </View>
       )}
@@ -365,7 +370,7 @@ export default function FitnessChatScreen() {
           style={styles.input}
           value={message}
           onChangeText={setMessage}
-          placeholder="Ask Cosmic AI anything (1 credit)"
+          placeholder="Ask Health Coach AI anything (1 credit)"
           placeholderTextColor="#94a3b8"
           multiline
         />

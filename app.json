@@ -6,25 +6,25 @@
     "developmentClient": true,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "com.biruk123.boltexponativewind",
+    "scheme": "com.biruk123.healthCoach",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.biruk123.boltexponativewind",
+      "bundleIdentifier": "com.biruk123.healthCoach",
       "displayName": "Health Coach",
       "infoPlist": {
         "NSFaceIDUsageDescription": "This app uses Face ID to secure your account.",
         "NSCameraUsageDescription": "This app uses the camera to scan QR codes.",
         "NSPhotoLibraryUsageDescription": "This app uses the photo library to save QR codes.",
-        "NSLocationWhenInUseUsageDescription": "This app uses your location to provide personalized readings.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses your location to provide personalized readings.",
-        "NSLocationAlwaysUsageDescription": "This app uses your location to provide personalized readings.",
+        "NSLocationWhenInUseUsageDescription": "This app uses your location to provide personalized health recommendations.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses your location to provide personalized health recommendations.",
+        "NSLocationAlwaysUsageDescription": "This app uses your location to provide personalized health recommendations.",
         "NSLocationTemporaryUsageDescriptionDictionary": {
-          "LocationAccuracy": "This app uses precise location to provide accurate readings.",
-          "LocationAccuracyReduced": "This app uses approximate location to provide readings."
+          "LocationAccuracy": "This app uses precise location to provide accurate health recommendations.",
+          "LocationAccuracyReduced": "This app uses approximate location to provide health recommendations."
         },
-        "NSLocationUsageDescription": "This app uses your location to provide personalized readings.",
+        "NSLocationUsageDescription": "This app uses your location to provide personalized health recommendations.",
         "NSLocationDefaultAccuracyReduced": true,
         "com.apple.developer.in-app-payments": [
           "merchant.com.monamary.cosmicai"
@@ -35,7 +35,7 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "associatedDomains": [
-        "applinks:com.biruk123.boltexponativewind"
+        "applinks:com.biruk123.healthCoach"
       ]
     },
     "web": {
@@ -66,7 +66,7 @@
       }
     },
     "android": {
-      "package": "com.biruk123.boltexponativewind",
+      "package": "com.biruk123.healthCoach",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
@@ -91,7 +91,7 @@
         {
           "action": "android.intent.action.VIEW",
           "data": {
-            "scheme": "com.biruk123.boltexponativewind"
+            "scheme": "com.biruk123.healthCoach"
           },
           "category": [
             "android.intent.category.DEFAULT",

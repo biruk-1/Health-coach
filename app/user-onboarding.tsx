@@ -10,6 +10,7 @@ import {
   TextInput,
   Platform,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,10 +18,12 @@ import { useRouter } from 'expo-router';
 import { useOnboarding } from '../context/OnboardingContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../context/AuthContext';
 
 export default function UserOnboardingScreen() {
   const router = useRouter();
   const { completeOnboarding } = useOnboarding();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const insets = useSafeAreaInsets();
@@ -106,14 +109,39 @@ export default function UserOnboardingScreen() {
       try {
         setLoading(true);
         
-        // In a real implementation, you would save all data to an API
-        // api.users.updateOnboardingData({ ... });
+        // Save personalization data to user profile
+        // This would typically be saved to a database
+        const onboardingData = {
+          coachingFor,
+          healthGoals,
+          primaryGoal,
+          healthConditions,
+          workingWithDoctor,
+          biggestChallenge,
+          otherChallenge,
+          typicalDay,
+          activityLevel,
+          coachingTypes,
+          location,
+          supportFrequency,
+          trackingItems,
+          wantsReminders,
+          communicationStyle,
+          motivation,
+          budget
+        };
         
-        // Complete onboarding and specify user type
+        // In a real app, you'd save this data to the user's profile via an API call
+        console.log('Saving user preferences:', onboardingData);
+        
+        // Save user type and mark onboarding as complete
         await completeOnboarding('user');
+        
+        // Navigate to the main app
         router.replace('/(tabs)');
       } catch (error) {
         console.error('Error completing onboarding:', error);
+        Alert.alert('Error', 'An unexpected error occurred');
       } finally {
         setLoading(false);
       }

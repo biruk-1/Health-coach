@@ -11,6 +11,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Image,
+  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,10 +20,12 @@ import { useOnboarding } from '../context/OnboardingContext';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '../context/AuthContext';
 
 export default function CoachOnboardingScreen() {
   const router = useRouter();
   const { completeOnboarding } = useOnboarding();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const insets = useSafeAreaInsets();
@@ -133,14 +136,53 @@ export default function CoachOnboardingScreen() {
       try {
         setLoading(true);
         
-        // In a real implementation, you would save all data to an API
-        // api.coaches.updateProfile({ ... });
+        // Save coach profile data
+        const coachProfileData = {
+          fullName,
+          gender,
+          location,
+          profilePhoto,
+          bio,
+          isCertified,
+          certifications,
+          certificationProof,
+          experience,
+          specialties,
+          coachingSpecialties,
+          targetAudience,
+          testimonialPhotos,
+          coachingStyle,
+          preferredFormat,
+          clientCapacity,
+          availability,
+          rate,
+          rateType,
+          offerFreeIntro,
+          packages,
+          aiHelp,
+          aiHandsOn
+        };
         
-        // Complete onboarding and specify coach type
+        // In a real app, you'd save this data to the user's profile via an API call
+        console.log('Saving coach profile data:', coachProfileData);
+        
+        // Save user type and mark onboarding as complete
         await completeOnboarding('coach');
-        router.replace('/(tabs)');
+        
+        // Show verification pending message
+        Alert.alert(
+          'Verification Submitted',
+          'Thank you for submitting your coach profile. Our team will review your application and get back to you soon.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/(tabs)')
+            }
+          ]
+        );
       } catch (error) {
-        console.error('Error completing onboarding:', error);
+        console.error('Error completing coach onboarding:', error);
+        Alert.alert('Error', 'An unexpected error occurred');
       } finally {
         setLoading(false);
       }

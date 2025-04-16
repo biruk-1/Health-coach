@@ -12,6 +12,14 @@ interface UserProfileUpdate {
   interests?: string[];
 }
 
+interface RegisterData {
+  email: string;
+  password: string;
+  fullName: string;
+  phone?: string;
+  role?: 'user' | 'psychic';
+}
+
 class Api {
   users = {
     /**
@@ -89,6 +97,73 @@ class Api {
         return { data, error: null };
       } catch (error) {
         console.error('Failed to get profile:', error);
+        return {
+          data: null,
+          error: error instanceof Error ? error : new Error('Unknown error')
+        };
+      }
+    }
+  };
+  
+  auth = {
+    /**
+     * Register a new user
+     */
+    register: async (data: RegisterData): Promise<{ token?: string; error?: string }> => {
+      try {
+        console.log('Registering user with email:', data.email);
+        
+        // Register user with Supabase
+        const { data: authData, error } = await supabase.auth.signUp({
+          email: data.email,
+          password: data.password,
+          options: {
+            data: {
+              full_name: data.fullName,
+              phone: data.phone,
+              role: data.role || 'user'
+            }
+          }
+        });
+        
+        if (error) {
+          console.error('Registration error:', error.message);
+          return { error: error.message };
+        }
+        
+        if (!authData.session) {
+          console.log('User registered but no session returned - email confirmation may be required');
+          return { token: 'email-confirmation-required' };
+        }
+        
+        return { token: authData.session.access_token };
+      } catch (error) {
+        console.error('Failed to register user:', error);
+        return { 
+          error: error instanceof Error ? error.message : 'An unexpected error occurred during registration'
+        };
+      }
+    },
+    
+    /**
+     * Get current user information
+     */
+    me: async (): Promise<ApiResponse<any>> => {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (error) {
+          return {
+            data: null,
+            error: new Error(error.message)
+          };
+        }
+        
+        return { 
+          data: user, 
+          error: null 
+        };
+      } catch (error) {
         return {
           data: null,
           error: error instanceof Error ? error : new Error('Unknown error')

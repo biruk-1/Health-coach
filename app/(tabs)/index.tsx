@@ -25,7 +25,7 @@ import { useFocusEffect } from 'expo-router';
 
 type PractitionerType = 'nutrition' | 'fitness' | 'mental' | 'sleep' | 'wellness' | 'all';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const isSmallScreen = width < 375;
 const isLargeScreen = width > 428;
 
@@ -56,35 +56,32 @@ export default function CoachesScreen() {
   const [hasMorePages, setHasMorePages] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Define handlePress at the top level with useCallback
   const handlePress = useCallback(async (item: HealthCoach) => {
     try {
-      // Navigate to the detail page
       router.push({
         pathname: '/[id]',
         params: { id: item.id },
       });
     } catch (error) {
       console.error('Failed to navigate:', error);
-      // Fallback navigation
       router.push(`/${item.id}`);
+    }
+  }, [router]);
+
+  const handleChatPress = useCallback(async () => {
+    try {
+      router.push('/cosmic-ai-subscription');
+    } catch (error) {
+      console.error('Failed to navigate:', error);
     }
   }, [router]);
 
   useEffect(() => {
     const initializeData = async () => {
       try {
-        // Try to initialize the database first
         await initializeDatabase();
-        
-        // Then check connection status
         await checkSupabaseConnection();
-        
-        // Always load coaches regardless of connection status
-        // This will use cached data if Supabase is unavailable
         await loadCoaches();
-        
-        // Log the total number of coaches available
         console.log('Total coaches available in database:', totalCoaches);
       } catch (error) {
         console.error('Initialization error:', error);
@@ -112,13 +109,11 @@ export default function CoachesScreen() {
   };
 
   useEffect(() => {
-    // Load coaches when selected type changes, regardless of connection status
     loadCoaches();
   }, [selectedType]);
 
   useFocusEffect(
     useCallback(() => {
-      // Always refresh when screen is focused
       loadCoaches();
     }, [])
   );
@@ -141,44 +136,39 @@ export default function CoachesScreen() {
       setError(null);
       if (!isRefreshing && !append) setIsLoading(true);
       if (append) setLoadingMore(true);
-      
-      // Use standard page size of 20 coaches per page (faster loading)
+
       const pageSize = 20;
-      
+
       const searchParams = {
         specialty: selectedType === 'all' ? undefined : selectedType,
         page,
         pageSize,
         searchTerm: searchTerm || undefined,
-        rating: undefined, // Add if you implement rating filter
+        rating: undefined,
       };
 
       console.log('Fetching with params:', JSON.stringify(searchParams));
-      
+
       const result = await getHealthCoaches(searchParams);
-      
-      // Detailed logging to debug any issues
+
       console.log(`DEBUG: Fetched ${result?.coaches?.length || 0} coaches of ${result?.total || 0} total`);
       console.log(`DEBUG: Page ${result?.page} of ${result?.totalPages}, pageSize: ${result?.pageSize}`);
-      
+
       if (result?.coaches?.length > 0) {
         console.log('DEBUG: First coach data sample:', {
           id: result.coaches[0].id,
           name: result.coaches[0].name,
           specialty: result.coaches[0].specialty,
-          rating: result.coaches[0].rating
+          rating: result.coaches[0].rating,
         });
       } else {
         console.warn('No coaches returned for the current query');
       }
-      
+
       setTotalCoaches(result?.total || 0);
-      
-      // Update hasMorePages based on current page and total pages
       setHasMorePages(result?.page < result?.totalPages);
       setCurrentPage(result?.page || 1);
 
-      // Update practitioners state
       if (append) {
         setPractitioners((prev) => [...prev, ...(result?.coaches || [])]);
       } else {
@@ -209,7 +199,6 @@ export default function CoachesScreen() {
     if (hasMorePages && !loadingMore) {
       console.log('Loading more coaches page:', currentPage + 1);
       setLoadingMore(true);
-      // Short delay to allow the loading indicator to render
       setTimeout(() => {
         loadCoaches(currentPage + 1, true);
       }, 500);
@@ -302,7 +291,7 @@ export default function CoachesScreen() {
         </View>
       );
     }
-    
+
     if (hasMorePages) {
       return (
         <View style={styles.footerContainer}>
@@ -310,19 +299,16 @@ export default function CoachesScreen() {
             <ActivityIndicator size="small" color="#6366f1" />
             <Text style={styles.footerText}>Loading...</Text>
           </View>
-          
+
           {totalCoaches > practitioners.length && (
-            <TouchableOpacity 
-              style={styles.loadAllButton}
-              onPress={() => loadAllCoaches()}
-            >
+            <TouchableOpacity style={styles.loadAllButton} onPress={() => loadAllCoaches()}>
               <Text style={styles.loadAllButtonText}>Load All {totalCoaches} Coaches</Text>
             </TouchableOpacity>
           )}
         </View>
       );
     }
-    
+
     return null;
   };
 
@@ -330,24 +316,23 @@ export default function CoachesScreen() {
     try {
       setIsLoading(true);
       setError(null);
-      
+
       console.log('Loading all coaches at once...');
-      
+
       const searchParams = {
         specialty: selectedType === 'all' ? undefined : selectedType,
         page: 1,
-        pageSize: totalCoaches, // Request all coaches at once
+        pageSize: totalCoaches,
         searchTerm: searchTerm || undefined,
       };
 
       const result = await getHealthCoaches(searchParams);
-      
+
       console.log(`Loaded all ${result?.coaches?.length || 0} coaches of ${result?.total || 0} total`);
-      
+
       setPractitioners(result?.coaches || []);
       setHasMorePages(false);
       setCurrentPage(1);
-      
     } catch (err) {
       console.error('Failed to load all coaches:', err);
       setError('Failed to load all coaches. Please try again.');
@@ -371,14 +356,18 @@ export default function CoachesScreen() {
                   >
                     <LinearGradient colors={['#818cf8', '#6366f1']} style={styles.storyGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                       <View style={styles.storyInner}>
-                        <Ionicons name={
-                          type === 'All' ? 'grid-outline' :
-                          type === 'Nutrition' ? 'restaurant-outline' :
-                          type === 'Fitness' ? 'barbell-outline' :
-                          type === 'Mental' ? 'medkit-outline' :
-                          type === 'Wellness' ? 'leaf-outline' :
-                          'moon-outline'
-                        } size={24} color="#6366f1" />
+                        <Ionicons
+                          name={
+                            type === 'All' ? 'grid-outline' :
+                            type === 'Nutrition' ? 'restaurant-outline' :
+                            type === 'Fitness' ? 'barbell-outline' :
+                            type === 'Mental' ? 'medkit-outline' :
+                            type === 'Wellness' ? 'leaf-outline' :
+                            'moon-outline'
+                          }
+                          size={24}
+                          color="#6366f1"
+                        />
                       </View>
                     </LinearGradient>
                     <Text style={styles.storyText}>{type}</Text>
@@ -390,7 +379,15 @@ export default function CoachesScreen() {
             <View style={styles.searchContainer}>
               {showSearch ? (
                 <View style={styles.searchInputContainer}>
-                  <TextInput style={styles.searchInput} placeholder="Search by name or specialty..." placeholderTextColor="#94a3b8" value={searchTerm} onChangeText={setSearchTerm} onSubmitEditing={handleSearch} autoFocus />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search by name or specialty..."
+                    placeholderTextColor="#94a3b8"
+                    value={searchTerm}
+                    onChangeText={setSearchTerm}
+                    onSubmitEditing={handleSearch}
+                    autoFocus
+                  />
                   <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
                     <Ionicons name="close-circle" size={20} color="#94a3b8" />
                   </TouchableOpacity>
@@ -401,7 +398,10 @@ export default function CoachesScreen() {
                 </TouchableOpacity>
               )}
 
-              <TouchableOpacity style={styles.filterButton} onPress={() => Alert.alert('Filters', 'Filter functionality would go here')}>
+              <TouchableOpacity
+                style={styles.filterButton}
+                onPress={() => Alert.alert('Filters', 'Filter functionality would go here')}
+              >
                 <Ionicons name="filter" size={20} color="#ffffff" />
               </TouchableOpacity>
             </View>
@@ -410,7 +410,7 @@ export default function CoachesScreen() {
           {totalCoaches > 0 && (
             <View style={styles.resultsInfo}>
               <Text style={styles.resultsText}>
-                Showing {practitioners.length} of {totalCoaches} {selectedType === 'all' ? 'coaches' : selectedType + 's'} 
+                Showing {practitioners.length} of {totalCoaches} {selectedType === 'all' ? 'coaches' : selectedType + 's'}{' '}
                 {searchTerm ? ` matching "${searchTerm}"` : ''}
                 {currentPage > 1 ? ` (Page ${currentPage})` : ''}
               </Text>
@@ -429,8 +429,17 @@ export default function CoachesScreen() {
           </ScrollView>
 
           <View style={styles.floatingButtonContainer}>
-            <TouchableOpacity style={styles.floatingButton} onPress={() => router.push('/ai-coach-chat')}>
-              <LinearGradient colors={['#6366f1', '#4f46e5']} style={styles.gradientButton} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+            <TouchableOpacity 
+              style={styles.floatingButton} 
+              onPress={handleChatPress}
+              activeOpacity={0.7}
+            >
+              <LinearGradient
+                colors={['#6366f1', '#4f46e5']}
+                style={styles.gradientButton}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
                 <Ionicons name="sparkles" size={24} color="#ffffff" />
                 <Text style={styles.floatingButtonText}>Ask Coach AI</Text>
               </LinearGradient>
@@ -469,14 +478,18 @@ export default function CoachesScreen() {
                 >
                   <LinearGradient colors={['#818cf8', '#6366f1']} style={styles.storyGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                     <View style={styles.storyInner}>
-                      <Ionicons name={
-                        type === 'All' ? 'grid-outline' :
-                        type === 'Nutrition' ? 'restaurant-outline' :
-                        type === 'Fitness' ? 'barbell-outline' :
-                        type === 'Mental' ? 'medkit-outline' :
-                        type === 'Wellness' ? 'leaf-outline' :
-                        'moon-outline'
-                      } size={24} color="#6366f1" />
+                      <Ionicons
+                        name={
+                          type === 'All' ? 'grid-outline' :
+                          type === 'Nutrition' ? 'restaurant-outline' :
+                          type === 'Fitness' ? 'barbell-outline' :
+                          type === 'Mental' ? 'medkit-outline' :
+                          type === 'Wellness' ? 'leaf-outline' :
+                          'moon-outline'
+                        }
+                        size={24}
+                        color="#6366f1"
+                      />
                     </View>
                   </LinearGradient>
                   <Text style={styles.storyText}>{type}</Text>
@@ -488,7 +501,15 @@ export default function CoachesScreen() {
           <View style={styles.searchContainer}>
             {showSearch ? (
               <View style={styles.searchInputContainer}>
-                <TextInput style={styles.searchInput} placeholder="Search by name or specialty..." placeholderTextColor="#94a3b8" value={searchTerm} onChangeText={setSearchTerm} onSubmitEditing={handleSearch} autoFocus />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search by name or specialty..."
+                  placeholderTextColor="#94a3b8"
+                  value={searchTerm}
+                  onChangeText={setSearchTerm}
+                  onSubmitEditing={handleSearch}
+                  autoFocus
+                />
                 <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
                   <Ionicons name="close-circle" size={20} color="#94a3b8" />
                 </TouchableOpacity>
@@ -499,7 +520,10 @@ export default function CoachesScreen() {
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.filterButton} onPress={() => Alert.alert('Filters', 'Filter functionality would go here')}>
+            <TouchableOpacity
+              style={styles.filterButton}
+              onPress={() => Alert.alert('Filters', 'Filter functionality would go here')}
+            >
               <Ionicons name="filter" size={20} color="#ffffff" />
             </TouchableOpacity>
           </View>
@@ -508,7 +532,7 @@ export default function CoachesScreen() {
         {totalCoaches > 0 && (
           <View style={styles.resultsInfo}>
             <Text style={styles.resultsText}>
-              Showing {practitioners.length} of {totalCoaches} {selectedType === 'all' ? 'coaches' : selectedType + 's'} 
+              Showing {practitioners.length} of {totalCoaches} {selectedType === 'all' ? 'coaches' : selectedType + 's'}{' '}
               {searchTerm ? ` matching "${searchTerm}"` : ''}
               {currentPage > 1 ? ` (Page ${currentPage})` : ''}
             </Text>
@@ -530,14 +554,25 @@ export default function CoachesScreen() {
           windowSize={12}
           removeClippedSubviews={true}
           updateCellsBatchingPeriod={50}
-          getItemLayout={(data, index) => (
-            {length: 216, offset: 216 * index, index}
-          )}
+          getItemLayout={(data, index) => ({
+            length: isSmallScreen ? 192 : isLargeScreen ? 232 : 212,
+            offset: (isSmallScreen ? 192 : isLargeScreen ? 232 : 212) * index,
+            index,
+          })}
         />
 
         <View style={styles.floatingButtonContainer}>
-          <TouchableOpacity style={styles.floatingButton} onPress={() => router.push('/ai-coach-chat')}>
-            <LinearGradient colors={['#6366f1', '#4f46e5']} style={styles.gradientButton} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+          <TouchableOpacity 
+            style={styles.floatingButton} 
+            onPress={handleChatPress}
+            activeOpacity={0.7}
+          >
+            <LinearGradient
+              colors={['#6366f1', '#4f46e5']}
+              style={styles.gradientButton}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
               <Ionicons name="sparkles" size={24} color="#ffffff" />
               <Text style={styles.floatingButtonText}>Ask Coach AI</Text>
             </LinearGradient>
@@ -553,88 +588,373 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
-  container: { 
-    flex: 1, 
-    backgroundColor: '#f8fafc', 
-    position: 'relative', 
-    paddingBottom: Platform.OS === 'ios' ? 100 : 80 
+  container: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
   },
   header: {
     backgroundColor: '#f1f5f9',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
-    paddingTop: Platform.OS === 'ios' ? 45 : 5 + (StatusBar.currentHeight || 0), // Adjust for status bar on Android
-    paddingBottom: Platform.OS === 'ios' ? 6 : 4,
-    ...Platform.select({ 
-      ios: { 
-        shadowColor: '#000', 
-        shadowOffset: { width: 0, height: 1 }, 
-        shadowOpacity: 0.05, 
-        shadowRadius: 3 
-      }, 
-      android: { 
-        elevation: 2 
-      } 
+    paddingTop: Platform.OS === 'ios' ? 10 : (StatusBar.currentHeight || 0) + 10,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
     }),
   },
-  storiesContainer: { marginBottom: Platform.OS === 'ios' ? 6 : 4, alignItems: 'center', paddingTop: 2, width: '100%' },
-  storiesScrollContent: { paddingHorizontal: 8, paddingVertical: Platform.OS === 'ios' ? 1 : 0, justifyContent: 'flex-start', flexDirection: 'row', flexWrap: 'nowrap' },
-  storyCircle: { alignItems: 'center', marginHorizontal: 6, width: 75 },
-  storyCircleActive: { transform: [{ scale: 1.02 }] },
-  storyGradient: { width: 80, height: 45, borderRadius: 22.5, padding: 2, marginBottom: 4, ...Platform.select({ ios: { shadowColor: '#6366f1', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 }, android: { elevation: 2 } }) },
-  storyInner: { width: '100%', height: '100%', borderRadius: 20, backgroundColor: '#ffffff', justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: '#e2e8f0', ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 }, android: { elevation: 1 } }) },
-  storyText: { color: '#475569', fontSize: 10, fontWeight: '600', textAlign: 'center', marginTop: 1, width: '100%', ...Platform.select({ ios: { textShadowColor: 'rgba(0, 0, 0, 0.05)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 1 } }) },
-  searchContainer: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: Platform.OS === 'ios' ? 8 : 6, alignItems: 'center', backgroundColor: '#f1f5f9' },
-  searchInputContainer: { flex: 1, flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 10, paddingHorizontal: 10, alignItems: 'center', marginRight: 6, borderWidth: 1, borderColor: '#e2e8f0', ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 2 }, android: { elevation: 1 } }) },
-  searchInput: { flex: 1, color: '#1e293b', fontSize: 13, paddingVertical: Platform.OS === 'ios' ? 8 : 6 },
-  clearButton: { padding: 4 },
-  searchButton: { backgroundColor: '#6366f1', borderRadius: 10, padding: Platform.OS === 'ios' ? 8 : 6, marginRight: 6, ...Platform.select({ ios: { shadowColor: '#6366f1', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3 }, android: { elevation: 2 } }) },
-  filterButton: { backgroundColor: '#6366f1', borderRadius: 10, padding: Platform.OS === 'ios' ? 8 : 6, ...Platform.select({ ios: { shadowColor: '#6366f1', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.15, shadowRadius: 3 }, android: { elevation: 2 } }) },
-  resultsInfo: { padding: 8, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  resultsText: { color: '#64748b', fontSize: 11, textAlign: 'center' },
-  list: { padding: 16, paddingBottom: 100 },
-  emptyList: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 100 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#ffffff', borderRadius: 12, margin: 16 },
-  emptyText: { color: '#4b5563', fontSize: 16, marginTop: 16, marginBottom: 16, textAlign: 'center' },
-  practitionerCard: { marginBottom: 16, borderRadius: 16, overflow: 'hidden', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, height: 200, backgroundColor: '#ffffff' },
-  cardBackground: { width: '100%', height: '100%' },
-  cardOverlay: { flex: 1, justifyContent: 'flex-end', padding: 16 },
-  cardContent: { width: '100%' },
-  nameContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  name: { fontSize: 18, fontWeight: '600', color: '#ffffff', flex: 1 },
-  verifiedBadge: { marginLeft: 8, backgroundColor: '#ffffff', borderRadius: 12, padding: 4 },
-  specialty: { fontSize: 14, color: '#e5e7eb', marginBottom: 8 },
-  ratingContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  rating: { fontSize: 14, fontWeight: '600', color: '#ffffff', marginLeft: 4 },
-  reviews: { fontSize: 14, color: '#e5e7eb', marginLeft: 4 },
-  locationContainer: { flexDirection: 'row', alignItems: 'center' },
-  location: { fontSize: 14, color: '#e5e7eb', marginLeft: 4 },
-  floatingButtonContainer: { position: 'absolute', bottom: Platform.OS === 'ios' ? 100 : 80, right: 20, zIndex: 9999, elevation: 5, shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
-  floatingButton: { borderRadius: 25, overflow: 'hidden', elevation: 5, shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
-  gradientButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 25, backgroundColor: '#6366f1', ...Platform.select({ ios: { shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 }, android: { elevation: 5 } }) },
-  floatingButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600', marginLeft: 8, textShadowColor: 'rgba(0, 0, 0, 0.2)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  loadingContainer: { flex: 1, backgroundColor: '#f5f5f5', justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#4b5563', fontSize: 16, marginTop: 16 },
-  loadingCard: { 
-    height: 200, 
-    backgroundColor: '#ffffff', 
-    borderRadius: 16, 
-    marginBottom: 16, 
-    justifyContent: 'center', 
+  storiesContainer: {
+    marginBottom: Platform.OS === 'ios' ? 8 : 6,
+    alignItems: 'center',
+    paddingTop: 2,
+    width: '100%',
+  },
+  storiesScrollContent: {
+    paddingHorizontal: 8,
+    paddingVertical: Platform.OS === 'ios' ? 2 : 0,
+    justifyContent: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+  },
+  storyCircle: {
+    alignItems: 'center',
+    marginHorizontal: 6,
+    width: isSmallScreen ? 70 : isLargeScreen ? 80 : 75,
+  },
+  storyCircleActive: {
+    transform: [{ scale: 1.02 }],
+  },
+  storyGradient: {
+    width: isSmallScreen ? 70 : isLargeScreen ? 80 : 75,
+    height: isSmallScreen ? 40 : isLargeScreen ? 50 : 45,
+    borderRadius: isSmallScreen ? 20 : (isLargeScreen ? 25 : 22.5),
+    padding: 2,
+    marginBottom: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  storyInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: isSmallScreen ? 18 : isLargeScreen ? 23 : 20,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  storyText: {
+    color: '#475569',
+    fontSize: isSmallScreen ? 9 : isLargeScreen ? 11 : 10,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 2,
+    width: '100%',
+    ...Platform.select({
+      ios: {
+        textShadowColor: 'rgba(0, 0, 0, 0.05)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 1,
+      },
+    }),
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 6,
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.03,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  searchInput: {
+    flex: 1,
+    color: '#1e293b',
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 14 : 13,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  searchButton: {
+    backgroundColor: '#6366f1',
+    borderRadius: 10,
+    padding: Platform.OS === 'ios' ? 8 : 6,
+    marginRight: 6,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  filterButton: {
+    backgroundColor: '#6366f1',
+    borderRadius: 10,
+    padding: Platform.OS === 'ios' ? 8 : 6,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  resultsInfo: {
+    padding: 8,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  resultsText: {
+    color: '#64748b',
+    fontSize: isSmallScreen ? 10 : isLargeScreen ? 12 : 11,
+    textAlign: 'center',
+  },
+  list: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingBottom: Platform.OS === 'ios' ? 80 : 70,
+    flexGrow: 1,
+  },
+  emptyList: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: Platform.OS === 'ios' ? 80 : 70,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    margin: 16,
+  },
+  emptyText: {
+    color: '#4b5563',
+    fontSize: isSmallScreen ? 15 : isLargeScreen ? 17 : 16,
+    marginTop: 16,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  practitionerCard: {
+    marginBottom: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    height: isSmallScreen ? 180 : isLargeScreen ? 220 : 200,
+    backgroundColor: '#ffffff',
+  },
+  cardBackground: {
+    width: '100%',
+    height: '100%',
+  },
+  cardOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    padding: isSmallScreen ? 12 : isLargeScreen ? 18 : 16,
+  },
+  cardContent: {
+    width: '100%',
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  name: {
+    fontSize: isSmallScreen ? 16 : isLargeScreen ? 20 : 18,
+    fontWeight: '600',
+    color: '#ffffff',
+    flex: 1,
+  },
+  verifiedBadge: {
+    marginLeft: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 4,
+  },
+  specialty: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    color: '#e5e7eb',
+    marginBottom: 8,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  rating: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    fontWeight: '600',
+    color: '#ffffff',
+    marginLeft: 4,
+  },
+  reviews: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    color: '#e5e7eb',
+    marginLeft: 4,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  location: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    color: '#e5e7eb',
+    marginLeft: 4,
+  },
+  floatingButtonContainer: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 20 : 16,
+    right: 16,
+    zIndex: 9999,
+    elevation: 5,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    ...Platform.select({
+      android: {
+        marginBottom: 60,
+      },
+    }),
+  },
+  floatingButton: {
+    borderRadius: 25,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    ...Platform.select({
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  gradientButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: isSmallScreen ? 10 : isLargeScreen ? 14 : 12,
+    paddingHorizontal: isSmallScreen ? 16 : isLargeScreen ? 24 : 20,
+    borderRadius: 25,
+    backgroundColor: '#6366f1',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  floatingButtonText: {
+    color: '#ffffff',
+    fontSize: isSmallScreen ? 14 : isLargeScreen ? 18 : 16,
+    fontWeight: '600',
+    marginLeft: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#4b5563',
+    fontSize: isSmallScreen ? 15 : isLargeScreen ? 17 : 16,
+    marginTop: 16,
+  },
+  loadingCard: {
+    height: isSmallScreen ? 180 : isLargeScreen ? 220 : 200,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    marginBottom: 12,
+    justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    ...Platform.select({ 
-      ios: { 
-        shadowColor: '#000', 
-        shadowOffset: { width: 0, height: 1 }, 
-        shadowOpacity: 0.05, 
-        shadowRadius: 3 
-      }, 
-      android: { 
-        elevation: 2 
-      } 
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
     }),
   },
   loadingCardInner: {
@@ -644,7 +964,7 @@ const styles = StyleSheet.create({
   },
   loadingCardText: {
     color: '#64748b',
-    fontSize: 14,
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
     marginTop: 12,
     fontWeight: '500',
   },
@@ -655,36 +975,65 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: '#f8fafc',
   },
-  errorText: { color: '#4b5563', fontSize: 16, textAlign: 'center', marginTop: 16, marginBottom: 24 },
-  retryButton: { backgroundColor: '#6366f1', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 },
-  retryButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  footerLoader: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 16 },
-  footerText: { color: '#4b5563', fontSize: 14, marginLeft: 8 },
+  errorText: {
+    color: '#4b5563',
+    fontSize: isSmallScreen ? 15 : isLargeScreen ? 17 : 16,
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: isSmallScreen ? 20 : isLargeScreen ? 28 : 24,
+    paddingVertical: isSmallScreen ? 10 : isLargeScreen ? 14 : 12,
+    borderRadius: 8,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: isSmallScreen ? 14 : isLargeScreen ? 18 : 16,
+    fontWeight: '600',
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 12,
+  },
+  footerText: {
+    color: '#4b5563',
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
+    marginLeft: 8,
+  },
   footerContainer: {
     alignItems: 'center',
-    paddingBottom: 30,
+    paddingBottom: 20,
   },
   loadAllButton: {
     backgroundColor: '#6366f1',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
+    paddingVertical: isSmallScreen ? 8 : isLargeScreen ? 12 : 10,
     borderRadius: 8,
-    marginTop: 15,
-    ...Platform.select({ 
-      ios: { 
-        shadowColor: '#6366f1', 
-        shadowOffset: { width: 0, height: 2 }, 
-        shadowOpacity: 0.15, 
-        shadowRadius: 3 
-      }, 
-      android: { 
-        elevation: 2 
-      } 
+    marginTop: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
     }),
   },
   loadAllButtonText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
     fontWeight: '600',
   },
 });

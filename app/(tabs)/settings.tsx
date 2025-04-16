@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from './../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Dimensions } from 'react-native';
 
 type SettingItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -11,6 +12,10 @@ type SettingItem = {
   description: string;
   action: () => void;
 };
+
+const { width } = Dimensions.get('window');
+const isSmallScreen = width < 375;
+const isLargeScreen = width > 428;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -57,80 +62,85 @@ export default function SettingsScreen() {
   ];
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Customize your experience</Text>
-      </View>
-
-      <View style={styles.balanceCard}>
-        <View style={styles.balanceHeader}>
-          <Ionicons name="wallet-outline" size={24} color="#6366f1" />
-          <Text style={styles.balanceTitle}>Current Balance</Text>
-        </View>
-        <Text style={styles.balanceAmount}>${balance.toFixed(2)}</Text>
-        <TouchableOpacity 
-          style={styles.addFundsButton}
-          onPress={() => router.push('/settings/add-funds')}
-        >
-          <Text style={styles.addFundsText}>Add Funds</Text>
-          <Ionicons name="add-circle" size={20} color="#ffffff" style={styles.addIcon} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.settingsContainer}>
-        {settings.map((setting, index) => (
-          <TouchableOpacity
-            key={setting.title}
-            style={[
-              styles.settingItem,
-              index !== settings.length - 1 && styles.settingItemBorder,
-            ]}
-            onPress={setting.action}
-          >
-            <View style={styles.settingIcon}>
-              <Ionicons name={setting.icon} size={24} color="#6366f1" />
-            </View>
-            <View style={styles.settingContent}>
-              <Text style={styles.settingTitle}>{setting.title}</Text>
-              <Text style={styles.settingDescription}>{setting.description}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <TouchableOpacity 
-        style={styles.signOutButton}
-        onPress={handleSignOut}
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
       >
-        <Text style={styles.signOutText}>Sign Out</Text>
-      </TouchableOpacity>
+        <View style={styles.header}>
+          <Text style={styles.title}>Settings</Text>
+          <Text style={styles.subtitle}>Customize your experience</Text>
+        </View>
 
-      <Text style={styles.version}>Version 1.0.0</Text>
-    </ScrollView>
+        <View style={styles.balanceCard}>
+          <View style={styles.balanceHeader}>
+            <Ionicons name="wallet-outline" size={24} color="#6366f1" />
+            <Text style={styles.balanceTitle}>Current Balance</Text>
+          </View>
+          <Text style={styles.balanceAmount}>${balance.toFixed(2)}</Text>
+          <TouchableOpacity
+            style={styles.addFundsButton}
+            onPress={() => router.push('/settings/add-funds')}
+          >
+            <Text style={styles.addFundsText}>Add Funds</Text>
+            <Ionicons name="add-circle" size={20} color="#ffffff" style={styles.addIcon} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.settingsContainer}>
+          {settings.map((setting, index) => (
+            <TouchableOpacity
+              key={setting.title}
+              style={[
+                styles.settingItem,
+                index !== settings.length - 1 && styles.settingItemBorder,
+              ]}
+              onPress={setting.action}
+            >
+              <View style={styles.settingIcon}>
+                <Ionicons name={setting.icon} size={24} color="#6366f1" />
+              </View>
+              <View style={styles.settingContent}>
+                <Text style={styles.settingTitle}>{setting.title}</Text>
+                <Text style={styles.settingDescription}>{setting.description}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.version}>Version 1.0.0</Text>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
   },
   contentContainer: {
-    paddingTop: Platform.OS === 'ios' ? 12 : 10,
-    paddingBottom: 20,
+    paddingTop: Platform.OS === 'ios' ? 20 : 16,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 24,
+    paddingHorizontal: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
   },
   header: {
     backgroundColor: '#f1f5f9',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
-    paddingTop: Platform.OS === 'ios' ? 12 : 10,
-    paddingBottom: Platform.OS === 'ios' ? 6 : 4,
-    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 16 : 12,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 8,
+    paddingHorizontal: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
+    alignItems: 'center',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -144,24 +154,23 @@ const styles = StyleSheet.create({
     }),
   },
   title: {
-    fontSize: 20,
+    fontSize: isSmallScreen ? 18 : isLargeScreen ? 22 : 20,
     fontWeight: '900',
     color: '#1e293b',
     marginBottom: 4,
-    marginLeft:'30%'
+    textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
+    fontWeight: '500',
     color: '#64748b',
-     marginLeft:'15%',
-     fontWeight:'500'
+    textAlign: 'center',
   },
   balanceCard: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    marginHorizontal: 16,
     marginVertical: 12,
-    padding: 16,
+    padding: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -180,13 +189,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   balanceTitle: {
-    fontSize: 16,
+    fontSize: isSmallScreen ? 15 : isLargeScreen ? 18 : 16,
     fontWeight: '600',
     color: '#1e293b',
     marginLeft: 8,
   },
   balanceAmount: {
-    fontSize: 28,
+    fontSize: isSmallScreen ? 24 : isLargeScreen ? 32 : 28,
     fontWeight: '700',
     color: '#1e293b',
     marginBottom: 16,
@@ -194,7 +203,7 @@ const styles = StyleSheet.create({
   addFundsButton: {
     backgroundColor: '#6366f1',
     borderRadius: 8,
-    padding: 12,
+    padding: isSmallScreen ? 10 : isLargeScreen ? 14 : 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -213,7 +222,7 @@ const styles = StyleSheet.create({
   },
   addFundsText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: isSmallScreen ? 14 : isLargeScreen ? 18 : 16,
     fontWeight: '600',
     marginRight: 8,
   },
@@ -223,7 +232,6 @@ const styles = StyleSheet.create({
   settingsContainer: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    marginHorizontal: 16,
     marginVertical: 12,
     overflow: 'hidden',
     ...Platform.select({
@@ -241,16 +249,16 @@ const styles = StyleSheet.create({
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
   },
   settingItemBorder: {
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
   settingIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: isSmallScreen ? 36 : isLargeScreen ? 44 : 40,
+    height: isSmallScreen ? 36 : isLargeScreen ? 44 : 40,
+    borderRadius: isSmallScreen ? 18 : isLargeScreen ? 22 : 20,
     backgroundColor: 'rgba(99, 102, 241, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -260,19 +268,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingTitle: {
-    fontSize: 16,
+    fontSize: isSmallScreen ? 15 : isLargeScreen ? 18 : 16,
     fontWeight: '600',
     color: '#1e293b',
     marginBottom: 4,
   },
   settingDescription: {
-    fontSize: 14,
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
     color: '#64748b',
   },
   signOutButton: {
-    marginHorizontal: 16,
     marginVertical: 16,
-    padding: 16,
+    padding: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
     backgroundColor: '#ef4444',
     borderRadius: 12,
     alignItems: 'center',
@@ -290,14 +297,13 @@ const styles = StyleSheet.create({
   },
   signOutText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: isSmallScreen ? 14 : isLargeScreen ? 18 : 16,
     fontWeight: '600',
   },
   version: {
     textAlign: 'center',
     color: '#64748b',
-    fontSize: 14,
-    marginBottom: 32,
-    paddingHorizontal: 16,
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
+    marginBottom: isSmallScreen ? 24 : isLargeScreen ? 40 : 32,
   },
 });
