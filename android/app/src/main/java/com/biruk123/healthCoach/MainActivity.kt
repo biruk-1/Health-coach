@@ -1,4 +1,4 @@
-package com.biruk123.boltexponativewind
+package com.biruk123.healthCoach
 
 import android.os.Build
 import android.os.Bundle

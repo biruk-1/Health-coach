@@ -4,7 +4,7 @@ import { FavoritesProvider } from '../context/FavoritesContext';
 import { OnboardingProvider, useOnboarding } from '../context/OnboardingContext';
 import { PurchaseProvider } from '../context/PurchaseContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View } from 'react-native';
@@ -14,6 +14,7 @@ import 'react-native-get-random-values';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import React from 'react';
 import { copyHealthCoachCSVToFileSystem } from '../services/health-coach-data';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 function StripeEnabledScreens({ children }: { children: React.ReactElement }) {
   const segments = useSegments();
@@ -49,7 +50,13 @@ function HealthCoachDataInitializer({ children }: { children: React.ReactElement
     const initializeHealthCoachData = async () => {
       try {
         console.log('Initializing health coach data...');
+        // First ensure the CSV file is available as a fallback
         await copyHealthCoachCSVToFileSystem();
+        
+        // Then try loading from Digital Ocean, with fallback to CSV
+        const { loadHealthCoaches } = await import('../services/health-coach-data');
+        await loadHealthCoaches();
+        
         console.log('Health coach data initialized successfully');
       } catch (error) {
         console.error('Failed to initialize health coach data:', error);
@@ -68,75 +75,125 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const initialRenderRef = useRef(true);
+  const [directedToOnboarding, setDirectedToOnboarding] = useState(false);
+
+  // Helper function to directly check AsyncStorage for onboarding status
+  const getOnboardingStatusFromStorage = async () => {
+    try {
+      const onboardedValue = await AsyncStorage.getItem('onboarded');
+      return onboardedValue === 'true';
+    } catch (error) {
+      console.error('Error getting onboarding status from storage:', error);
+      return false;
+    }
+  };
 
   useEffect(() => {
-    // Public routes that don't require authentication
-    const publicRoutes = [
-      'onboarding',  
-      'login', 
-      'index',
-      '(auth)'
-    ];
-    
-    // Personalization routes that require authentication but not onboarding
-    const personalizationRoutes = [
-      'onboarding-select',
-      'user-onboarding',
-      'coach-onboarding'
-    ];
-    
-    // Special routes that have their own handling
-    const specialRoutes = [
-      'verify-psychic',
-      'verify-details', 
-      'verify-success', 
-      'psychic-onboarding',
-      'verify-coach'
-    ];
-    
-    // Get the current path from segments
-    const currentRoute = segments[0] || '';
-    
-    // Check if the current path is in the relevant route groups
-    const isPublicRoute = publicRoutes.includes(currentRoute);
-    const isPersonalizationRoute = personalizationRoutes.includes(currentRoute);
-    const isSpecialRoute = specialRoutes.includes(currentRoute);
-    
-    // If we're in a nested route of psychic-onboarding, don't redirect
-    const isPsychicOnboardingSubroute = segments.length > 1 && segments[0] === 'psychic-onboarding';
-    
-    console.log('Current route:', currentRoute);
-    console.log('Is public route:', isPublicRoute);
-    console.log('Is personalization route:', isPersonalizationRoute);
-    console.log('User:', user ? 'Logged in' : 'Not logged in');
-    console.log('Is onboarded:', isOnboarded);
-    
-    // Don't redirect from root route - allow index.tsx to be shown as default welcome page
-    if (currentRoute === '') {
-      return;
-    }
-    
-    // Handle navigation based on auth status and current route
-    if (!user) {
-      // Not authenticated - redirect to public routes or special routes
-      if (!isPublicRoute && !isSpecialRoute) {
-        router.replace('/');
+    const checkAndRedirect = async () => {
+      // Public routes that don't require authentication
+      const publicRoutes = [
+        'onboarding',  
+        'login', 
+        'index',
+        '',
+        '(auth)',
+        'verify-psychic'
+      ];
+      
+      // Personalization routes that require authentication but not onboarding
+      const personalizationRoutes = [
+        'onboarding-select',
+        'user-onboarding',
+        'coach-onboarding'
+      ];
+      
+      // Special routes that have their own handling
+      const specialRoutes = [
+        'verify-details', 
+        'verify-success', 
+        'psychic-onboarding',
+        'verify-coach'
+      ];
+      
+      // Get the current path from segments
+      const currentRoute = segments[0] || '';
+      
+      // Check if we're in the tabs section
+      const isTabsRoute = currentRoute === '(tabs)';
+      
+      // Check if the current path is in the relevant route groups
+      const isPublicRoute = publicRoutes.includes(currentRoute);
+      const isPersonalizationRoute = personalizationRoutes.includes(currentRoute);
+      const isSpecialRoute = specialRoutes.includes(currentRoute);
+      
+      // Welcome page is always accessible
+      if (currentRoute === '' || currentRoute === 'index') {
+        return;
       }
-    } else {
-      // Authenticated user
-      if (isOnboarded) {
-        // Fully onboarded user - should be in main app
-        if (isPublicRoute || isPersonalizationRoute) {
-          router.replace('/(tabs)');
+      
+      // Only handle navigation after initial render
+      if (initialRenderRef.current) {
+        initialRenderRef.current = false;
+        return;
+      }
+
+      console.log('Current route:', currentRoute);
+      console.log('Is public route:', isPublicRoute);
+      console.log('Is personalization route:', isPersonalizationRoute);
+      console.log('User:', user ? 'Logged in' : 'Not logged in');
+      console.log('Is onboarded from context:', isOnboarded);
+      
+      // For login cases, use direct AsyncStorage check
+      if (user) {
+        const isOnboardedFromStorage = await getOnboardingStatusFromStorage();
+        console.log('Is onboarded from storage:', isOnboardedFromStorage);
+        
+        // User is authenticated - check onboarding status
+        if (isOnboardedFromStorage) {
+          // User is onboarded
+          if (isPersonalizationRoute) {
+            // User is already onboarded but trying to access onboarding screens
+            console.log('User already onboarded, redirecting to main app');
+            router.replace('/(tabs)');
+            return;
+          }
+        } else {
+          // User is not onboarded
+          if (isTabsRoute) {
+            // User is trying to access main app without onboarding
+            console.log('User not onboarded, redirecting to onboarding selection');
+            
+            // Prevent redirect loops
+            if (!directedToOnboarding) {
+              setDirectedToOnboarding(true);
+              router.replace('/onboarding-select');
+            }
+            return;
+          }
+        }
+        
+        // Handle login/onboarding screens for authenticated users
+        if (currentRoute === 'login' || currentRoute === 'onboarding') {
+          if (isOnboardedFromStorage) {
+            console.log('Redirecting authenticated and onboarded user to main app');
+            router.replace('/(tabs)');
+          } else {
+            console.log('Redirecting authenticated but not onboarded user to complete onboarding');
+            router.replace('/onboarding-select');
+          }
         }
       } else {
-        // Authenticated but not onboarded user - handle personalization flow
-        if (!isPersonalizationRoute && !isSpecialRoute && currentRoute !== '(tabs)' && !isPublicRoute) {
-          router.replace('/onboarding-select');
+        // Not authenticated
+        if (isTabsRoute || (!isPublicRoute && !isSpecialRoute)) {
+          console.log('Redirecting unauthenticated user to welcome page');
+          router.replace('/');
         }
       }
-    }
-  }, [user, isOnboarded, segments, router]);
+    };
+
+    checkAndRedirect();
+  }, [user, isOnboarded, segments, router, directedToOnboarding]);
 
   return <>{children}</>;
 }
@@ -156,7 +213,7 @@ export default function RootLayout() {
                         <View style={styles.container}>
                           <Stack screenOptions={{ headerShown: false }}>
                             {/* Public routes */}
-                            <Stack.Screen name="index" />
+                            <Stack.Screen name="index" options={{ gestureEnabled: false }} />
                             <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
                             <Stack.Screen name="onboarding-select" options={{ gestureEnabled: true }} />
                             <Stack.Screen name="login" options={{ presentation: 'modal' }} />

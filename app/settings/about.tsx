@@ -10,8 +10,8 @@ export default function AboutScreen() {
       // Replace these URLs with your actual App Store and Play Store URLs
       const storeUrl = Platform.select({
         ios: 'https://apps.apple.com/app/YOUR_APP_ID', // Replace YOUR_APP_ID with actual App Store ID
-        android: 'market://details?id=YOUR.PACKAGE.NAME', // Replace with your Android package name
-        default: 'https://coachingapp.com', // Fallback URL for web
+        android: 'market://details?id=com.biruk123.healthCoach', // Using the package name from app.json
+        default: 'https://healthcoach.com', // Fallback URL for web
       });
 
       const canOpen = await Linking.canOpenURL(storeUrl);
@@ -21,8 +21,8 @@ export default function AboutScreen() {
         // Fallback URLs if the app store links don't work
         const fallbackUrl = Platform.select({
           ios: 'https://apps.apple.com/app/YOUR_APP_ID',
-          android: 'https://play.google.com/store/apps/details?id=YOUR.PACKAGE.NAME',
-          default: 'https://coachingapp.com',
+          android: 'https://play.google.com/store/apps/details?id=com.biruk123.healthCoach',
+          default: 'https://healthcoach.com',
         });
         await Linking.openURL(fallbackUrl);
       }
@@ -35,23 +35,23 @@ export default function AboutScreen() {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>About</Text>
-        <Text style={styles.subtitle}>Learn more about our fitness coaching platform</Text>
+        <Text style={styles.subtitle}>Learn more about our health coaching platform</Text>
       </View>
 
       <View style={styles.logoSection}>
         <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=200&h=200&fit=crop' }}
+          source={{ uri: 'https://images.unsplash.com/photo-1505576399279-565b52d4ac71?q=80&w=200&h=200&fit=crop' }}
           style={styles.logo}
         />
-        <Text style={styles.appName}>Fitness Coach Pro</Text>
+        <Text style={styles.appName}>Health Coach</Text>
         <Text style={styles.version}>Version 1.0.0</Text>
       </View>
 
       <View style={styles.section}>
         <Text style={styles.description}>
-          Fitness Coach Pro connects you with expert personal trainers and fitness coaches. 
-          Our platform provides personalized workout plans, nutrition guidance, and real-time coaching 
-          to help you achieve your fitness goals.
+          Health Coach connects you with expert health professionals and wellness coaches. 
+          Our platform provides personalized health plans, nutrition guidance, and real-time coaching 
+          to help you achieve your wellness goals and live a healthier life.
         </Text>
       </View>
 
@@ -67,10 +67,10 @@ export default function AboutScreen() {
 
       <View style={styles.section}>
         <Text style={styles.credits}>
-          Made with 💪 by the Fitness Coach Pro team
+          Made with ❤️ by the Health Coach team
         </Text>
         <Text style={styles.copyright}>
-          © 2025 Fitness Coach Pro. All rights reserved.
+          © 2023 Health Coach. All rights reserved.
         </Text>
       </View>
     </ScrollView>

@@ -1,11 +1,29 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, View, Text, StyleSheet, Dimensions } from 'react-native';
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useRouter } from 'expo-router';
 
 const { width, height } = Dimensions.get('window');
 
 export default function TabLayout() {
+  const { user } = useAuth();
+  const router = useRouter();
+  
+  // Ensure user is authenticated for tabs section
+  useEffect(() => {
+    if (!user) {
+      console.log('Unauthorized access to tabs, redirecting to welcome page');
+      router.replace('/');
+    }
+  }, [user, router]);
+
+  // If not authenticated, don't render tabs content
+  if (!user) {
+    return null;
+  }
+
   return (
     <Tabs
       screenOptions={{

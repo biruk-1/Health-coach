@@ -8,6 +8,32 @@ let healthCoachesCache: HealthCoach[] = [];
 let isDataLoaded = false;
 
 /**
+ * First try loading from Digital Ocean, then fall back to CSV file
+ */
+export const loadHealthCoaches = async (): Promise<HealthCoach[]> => {
+  try {
+    console.log('Attempting to load health coaches from Digital Ocean...');
+    // First try getting data from Digital Ocean
+    const { getHealthCoaches } = await import('./database');
+    const result = await getHealthCoaches();
+    
+    if (result.coaches && result.coaches.length > 0) {
+      console.log(`Successfully loaded ${result.coaches.length} coaches from Digital Ocean API`);
+      healthCoachesCache = result.coaches;
+      isDataLoaded = true;
+      return healthCoachesCache;
+    } else {
+      console.log('Digital Ocean returned no coaches, falling back to CSV');
+      return await loadHealthCoachesFromCSV();
+    }
+  } catch (error) {
+    console.error('Failed to load from Digital Ocean:', error);
+    console.log('Falling back to CSV file data source');
+    return await loadHealthCoachesFromCSV();
+  }
+};
+
+/**
  * Copy the health-coach.csv file from assets to FileSystem.documentDirectory
  */
 export const copyHealthCoachCSVToFileSystem = async (): Promise<string> => {

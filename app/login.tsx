@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -111,7 +112,24 @@ export default function LoginScreen() {
       
       if (result.success) {
         console.log('Login successful, redirecting to tabs');
-        router.replace('/(tabs)'); // Use replace to prevent back navigation
+        
+        // For an existing user who's logging in, ensure they're marked as onboarded
+        // This solves the issue of being redirected to onboarding screens
+        try {
+          const { completeOnboarding } = await import('../context/OnboardingContext').then(mod => ({
+            completeOnboarding: mod.useOnboarding().completeOnboarding
+          }));
+          
+          // Mark user as onboarded without specific type
+          // This will ensure the NavigationGuard doesn't redirect to onboarding
+          await completeOnboarding();
+          console.log('User marked as onboarded');
+        } catch (onboardingError) {
+          console.error('Error marking user as onboarded:', onboardingError);
+        }
+        
+        // Directly navigate to main app
+        router.replace('/(tabs)');
       } else {
         setError('Invalid credentials. Please check your email and password.');
       }
@@ -136,93 +154,100 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoidingView}
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={['#5e35b1', '#3949ab', '#1e88e5']}
+        style={styles.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
       >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardAvoidingView}
         >
-          <View style={styles.header}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={handleBack}
-            >
-              <Ionicons name="arrow-back" size={24} color="#000000" />
-            </TouchableOpacity>
-            <Text style={styles.title}>Welcome Back</Text>
-          </View>
-
-          <View style={styles.form}>
-            {error && (
-              <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={20} color="#ef4444" />
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            )}
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={[styles.input, formErrors.email ? styles.inputError : null]}
-                value={form.email}
-                onChangeText={handleEmailChange}
-                placeholder="Enter your email"
-                placeholderTextColor="#94a3b8"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                autoFocus={!keyboardVisible}
-              />
-              {formErrors.email ? (
-                <Text style={styles.fieldErrorText}>{formErrors.email}</Text>
-              ) : null}
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.header}>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={handleBack}
+              >
+                <Ionicons name="arrow-back" size={24} color="#ffffff" />
+              </TouchableOpacity>
+              <Text style={styles.title}>Welcome Back</Text>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                style={[styles.input, formErrors.password ? styles.inputError : null]}
-                value={form.password}
-                onChangeText={handlePasswordChange}
-                placeholder="Enter your password"
-                placeholderTextColor="#94a3b8"
-                secureTextEntry
-                autoComplete="password"
-              />
-              {formErrors.password ? (
-                <Text style={styles.fieldErrorText}>{formErrors.password}</Text>
-              ) : null}
-            </View>
-
-            <TouchableOpacity
-              style={[styles.loginButton, loading && styles.loginButtonDisabled]}
-              onPress={handleLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <>
-                  <Text style={styles.loginButtonText}>Log In</Text>
-                  <Ionicons name="arrow-forward" size={24} color="#ffffff" style={styles.buttonIcon} />
-                </>
+            <View style={styles.form}>
+              {error && (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={20} color="#ef4444" />
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
               )}
-            </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.registerLink}
-              onPress={handleSignupRedirect}
-            >
-              <Text style={styles.registerLinkText}>
-                Don't have an account? Sign up
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={[styles.input, formErrors.email ? styles.inputError : null]}
+                  value={form.email}
+                  onChangeText={handleEmailChange}
+                  placeholder="Enter your email"
+                  placeholderTextColor="#94a3b8"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  autoFocus={!keyboardVisible}
+                />
+                {formErrors.email ? (
+                  <Text style={styles.fieldErrorText}>{formErrors.email}</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Password</Text>
+                <TextInput
+                  style={[styles.input, formErrors.password ? styles.inputError : null]}
+                  value={form.password}
+                  onChangeText={handlePasswordChange}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#94a3b8"
+                  secureTextEntry
+                  autoComplete="password"
+                />
+                {formErrors.password ? (
+                  <Text style={styles.fieldErrorText}>{formErrors.password}</Text>
+                ) : null}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <>
+                    <Text style={styles.loginButtonText}>Log In</Text>
+                    <Ionicons name="arrow-forward" size={24} color="#ffffff" style={styles.buttonIcon} />
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.registerLink}
+                onPress={handleSignupRedirect}
+              >
+                <Text style={styles.registerLinkText}>
+                  Don't have an account? Sign up
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -232,7 +257,9 @@ const { height } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+  },
+  gradient: {
+    flex: 1,
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -247,18 +274,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    backgroundColor: '#ffffff',
   },
   backButton: {
     marginRight: 16,
     padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '700',
-    color: '#1a1a1a',
+    color: '#ffffff',
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   form: {
     padding: 20,
@@ -268,10 +297,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   errorContainer: {
     flexDirection: 'row',
@@ -320,6 +349,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 24,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   loginButtonDisabled: {
     backgroundColor: '#94a3b8',
@@ -340,5 +374,6 @@ const styles = StyleSheet.create({
   registerLinkText: {
     color: '#6366f1',
     fontSize: 16,
+    fontWeight: '500',
   },
 });

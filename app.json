@@ -51,6 +51,14 @@
         {
           "merchantIdentifier": "merchant.com.monamary.cosmicai"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
       ]
     ],
     "experiments": {
@@ -77,7 +85,6 @@
         "ACCESS_NETWORK_STATE",
         "NFC"
       ],
-      "googleServicesFile": "./google-services.json",
       "config": {
         "googlePay": {
           "merchantName": "Cosmic AI",

@@ -1,4 +1,4 @@
-rootProject.name = 'bolt-expo-nativewind'
+rootProject.name = 'HealthCoach'
 
 dependencyResolutionManagement {
   versionCatalogs {

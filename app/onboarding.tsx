@@ -24,6 +24,7 @@ import CustomPhoneInput, { CustomPhoneInputRef } from '../components/CustomPhone
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { api } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -259,6 +260,8 @@ export default function OnboardingScreen() {
 
         if (registerResult.success) {
           console.log('Registration successful, updating profile');
+          
+          // Save additional profile data
           await api.users.updateProfile({
             birthDate: form.birthDate,
             height: form.height,
@@ -267,14 +270,22 @@ export default function OnboardingScreen() {
               .map(type => type.title)
           });
 
-          // Important: DON'T mark onboarding as complete here!
-          // We need the user to go through the personalization step
+          // IMPORTANT: Don't mark onboarding as complete yet!
+          // The user needs to go through onboarding-select to choose whether
+          // they're a coach or a user, then complete that specific onboarding
           
-          console.log('Navigating to personalization selection');
+          console.log('Registration successful! Redirecting to onboarding selection');
           
-          // After successful registration, redirect to personalization screens
-          // The Navigation Guard will handle redirecting to the appropriate screen
-          router.replace('/onboarding-select');
+          // Force clear onboarding status to make sure they go through the selection process
+          await AsyncStorage.removeItem('onboarded');
+          await AsyncStorage.removeItem('userType');
+          
+          // Need a small delay before redirecting to ensure context is updated
+          setTimeout(() => {
+            // Use router.replace instead of push to prevent back navigation
+            setIsNavigating(true);
+            router.replace('/onboarding-select');
+          }, 500);
         } else {
           handleRegistrationError(registerResult.error);
         }
