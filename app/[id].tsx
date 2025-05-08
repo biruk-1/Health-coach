@@ -1,482 +1,427 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  ImageBackground,
-  ActivityIndicator,
-  Dimensions,
-  Alert,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity, SafeAreaView, Platform, StatusBar, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useFavorites } from '../context/FavoritesContext';
-import { usePurchases } from '../context/PurchaseContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCoachById, HealthCoach } from '../services/database';
+import { getHealthCoachById, HealthCoach } from '../services/database';
+import { useAuth } from '../context/AuthContext';
+import { usePurchases } from '../context/PurchaseContext';
 
-type Message = {
-  id: string;
-  text: string;
-  sender: 'user' | 'health_coach';
-  timestamp: Date;
-};
-
-const { width } = Dimensions.get('window');
-
-const getRandomPastelColor = (name: string) => {
-  if (!name) return 'hsl(0, 70%, 80%)';
-  const hash = name.split('').reduce((acc, char) => char.charCodeAt(0) + acc, 0);
-  const hue = hash % 360;
-  return `hsl(${hue}, 70%, 80%)`;
-};
-
-const getInitials = (name: string) => {
-  if (!name) return '';
-  const parts = name.split(' ');
-  if (parts.length > 1) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  return name.charAt(0).toUpperCase();
-};
-
-// Optimize cache management with a longer timeout for frequently accessed coaches
-const CACHE_TIMEOUT = 30 * 60 * 1000; // Increase to 30 minutes
-type CachedData = {
-  data: HealthCoach;
-  timestamp: number;
-};
-
-const coachCache = new Map<string, CachedData>();
-
-const isCacheValid = (timestamp: number) => {
-  return Date.now() - timestamp < CACHE_TIMEOUT;
-};
-
-const getCachedCoach = async (id: string): Promise<HealthCoach | null> => {
-  try {
-    // First check in-memory cache
-    const cachedInMemory = coachCache.get(id);
-    if (cachedInMemory && isCacheValid(cachedInMemory.timestamp)) {
-      console.log('Using coach from memory cache');
-      return cachedInMemory.data;
-    }
-    
-    // Then check AsyncStorage cache
-    const cachedJson = await AsyncStorage.getItem(`coach_${id}`);
-    if (cachedJson) {
-      const cached = JSON.parse(cachedJson);
-      if (isCacheValid(cached.timestamp)) {
-        console.log('Using coach from AsyncStorage cache');
-        // Update in-memory cache too
-        coachCache.set(id, cached);
-        return cached.data;
-      }
-    }
-    
-    return null;
-  } catch (err) {
-    console.error('Error reading from cache:', err);
-    return null;
-  }
-};
-
-const setCachedCoach = async (id: string, data: HealthCoach) => {
-  try {
-    const cacheItem = {
-      data,
-      timestamp: Date.now(),
-    };
-    
-    // Update in-memory cache
-    coachCache.set(id, cacheItem);
-    
-    // Update AsyncStorage cache
-    await AsyncStorage.setItem(`coach_${id}`, JSON.stringify(cacheItem));
-  } catch (err) {
-    console.error('Error setting cache:', err);
-  }
-};
-
-export default function HealthCoachProfile() {
+export default function CoachDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const { user } = useAuth();
+  const { balance, refreshBalance } = usePurchases();
   const [coach, setCoach] = useState<HealthCoach | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [question, setQuestion] = useState('');
-  const { isFavorite, addFavorite, removeFavorite } = useFavorites();
-  const { balance, setBalance, loading: purchaseLoading, refreshBalance } = usePurchases();
-  const [conversation, setConversation] = useState<Message[]>([]);
-  const [sending, setSending] = useState(false);
-  const [favorited, setFavorited] = useState(false);
-
-  const loadCoachData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Try to get coach from local cache first
-      const cachedCoach = await getCachedCoach(id as string);
-      if (cachedCoach) {
-        console.log('Found coach in local cache:', cachedCoach.name);
-        // Set the coach from cache right away for fast loading
-        setCoach(cachedCoach);
-        
-        // Check favorite status
-        try {
-          const isFav = await isFavorite(id as string);
-          setFavorited(isFav);
-        } catch (err) {
-          console.error('Failed to check favorite status:', err);
-        }
-      }
-      
-      // Always try to load from Digital Ocean for fresh data
-      try {
-        console.log('Fetching coach with ID from Digital Ocean:', id);
-        const coachData = await getCoachById(id as string);
-        
-        if (coachData) {
-          console.log('Successfully loaded coach data from Digital Ocean');
-          // Cache the data
-          await setCachedCoach(id as string, coachData);
-          setCoach(coachData);
-          
-          // Check favorite status if we haven't already
-          if (!cachedCoach) {
-            const isFav = await isFavorite(id as string);
-            setFavorited(isFav);
-          }
-        } else {
-          console.log('Coach not found on Digital Ocean');
-          // If we don't have cached data either, throw an error
-          if (!cachedCoach) {
-            // Try one last time with fallback method
-            console.log('Trying fallback method directly...');
-            // Import the fallback function directly to ensure we use it
-            const { fallbackGetCoachById } = require('../services/database');
-            const fallbackCoach = await fallbackGetCoachById(id as string);
-            
-            if (fallbackCoach) {
-              console.log('Found coach via fallback method:', fallbackCoach.name);
-              await setCachedCoach(id as string, fallbackCoach);
-              setCoach(fallbackCoach);
-            } else {
-              throw new Error('Could not find the health coach profile');
-            }
-          }
-          // Otherwise, we already set the coach from cache above
-        }
-      } catch (digitalOceanError) {
-        console.error('Failed to load coach data from Digital Ocean:', digitalOceanError);
-        
-        // If we didn't already set coach data from cache and Digital Ocean failed
-        if (!cachedCoach) {
-          // Try one last time with fallback method
-          console.log('Digital Ocean failed. Trying fallback method directly...');
-          // Import the fallback function directly to ensure we use it
-          const { fallbackGetCoachById } = require('../services/database');
-          const fallbackCoach = await fallbackGetCoachById(id as string);
-          
-          if (fallbackCoach) {
-            console.log('Found coach via fallback method:', fallbackCoach.name);
-            await setCachedCoach(id as string, fallbackCoach);
-            setCoach(fallbackCoach);
-          } else {
-            throw new Error('Could not load coach data. Please check your connection and try again.');
-          }
-        } else {
-          console.log('⚠️ Using cached data for coach since Digital Ocean is unavailable');
-        }
-      }
-
-    } catch (err: any) {
-      console.error('Failed to load coach data:', err);
-      setError(err.message || 'Failed to load health coach data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [message, setMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const CREDITS_PER_MESSAGE = 2; // Cost per message
 
   useEffect(() => {
-    setLoading(true);
-    loadCoachData();
+    // If no user is authenticated, this check is moved to the _layout.tsx navigation guard
+    // This prevents the component from redirecting itself
     
-    // Refresh balance in background
-    refreshBalance().catch(console.error);
+    async function loadCoachDetails() {
+      try {
+        setLoading(true);
+        setError(null);
+        console.log('Loading coach details for ID:', id);
+        
+        if (!id) {
+          throw new Error('No coach ID provided');
+        }
+
+        const coachData = await getHealthCoachById(id);
+        
+        if (!coachData) {
+          throw new Error('Coach not found');
+        }
+        
+        console.log('Coach data loaded:', coachData.name);
+        setCoach(coachData);
+      } catch (err) {
+        console.error('Error loading coach:', err);
+        setError(err.message || 'Failed to load coach details');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadCoachDetails();
+    refreshBalance(); // Load the user's current credit balance
   }, [id]);
 
-  const pastelColor = useMemo(() => getRandomPastelColor(coach?.name || ''), [coach?.name]);
-  const initials = useMemo(() => getInitials(coach?.name || ''), [coach?.name]);
-
-  const handleToggleFavorite = async () => {
-    if (!coach) return;
-
-    try {
-      if (favorited) {
-        await removeFavorite(coach.id);
-        setFavorited(false);
-      } else {
-        await addFavorite(coach);
-        setFavorited(true);
-      }
-    } catch (error) {
-      console.error('Failed to toggle favorite:', error);
-      Alert.alert('Error', 'Failed to update favorites. Please try again.');
-    }
-  };
-
-  const handleSubmitQuestion = async () => {
-    if (!question.trim() || sending) return;
-
-    if (purchaseLoading) {
-      Alert.alert('Loading', 'Please wait while we fetch your credit status.');
+  const handleSendMessage = () => {
+    if (!message.trim()) {
       return;
     }
 
-    if (balance <= 0) {
-      Alert.alert('Insufficient Credits', 'You need credits to ask a question. Would you like to add funds now?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Add Funds', onPress: () => router.push('/settings/add-funds') }]);
+    // Check if user has enough credits
+    if (balance < CREDITS_PER_MESSAGE) {
+      Alert.alert(
+        "Insufficient Credits",
+        `You need ${CREDITS_PER_MESSAGE} credits to send a message. Would you like to purchase more?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Add Credits", 
+            onPress: () => {
+              // Navigate to purchase screen
+              router.push({
+                pathname: '/PurchaseScreen',
+                params: {
+                  screenTitle: 'Purchase Credits',
+                  iconName: 'wallet',
+                  onCloseRoute: `/[id]?id=${id}`,
+                  successRoute: `/[id]?id=${id}`,
+                  successMessage: 'You have successfully purchased'
+                }
+              });
+            } 
+          }
+        ]
+      );
       return;
     }
 
-    try {
-      setSending(true);
-
-      const newBalance = balance - 1;
-      await AsyncStorage.setItem('credits_balance', newBalance.toString());
-      setBalance(newBalance);
-
-      const newMessage: Message = { 
-        id: Date.now().toString(), 
-        text: question, 
-        sender: 'user', 
-        timestamp: new Date() 
-      };
-      
-      setConversation((prev) => [...prev, newMessage]);
-      setQuestion('');
-
-      // If not already favorited, add to favorites
-      if (!favorited && coach) {
-        await addFavorite(coach);
-        setFavorited(true);
-      }
-
-      // Simulate coach response after a delay
-      setTimeout(() => {
-        const response: Message = { 
-          id: (Date.now() + 1).toString(), 
-          text: `Thank you for your question about ${coach?.specialty || 'health coaching'}. I'll provide you with personalized advice based on my ${coach?.years_experience || 'many'} years of experience. I'll respond within the next couple of hours.`, 
-          sender: 'health_coach', 
-          timestamp: new Date() 
-        };
-        setConversation((prev) => [...prev, response]);
-        setSending(false);
-      }, 1000);
-    } catch (err) {
-      console.error('Error submitting question:', err);
-      setError('Failed to send question. Please try again.');
-      setSending(false);
-    }
+    setIsSending(true);
+    
+    // Simulate sending message
+    setTimeout(() => {
+      // Would normally deduct credits through an API call
+      Alert.alert("Message Sent", `Your message has been sent to ${coach?.name}. ${CREDITS_PER_MESSAGE} credits have been deducted from your balance.`);
+      setMessage('');
+      setIsSending(false);
+      refreshBalance(); // Refresh balance after sending
+    }, 1000);
   };
-
-  const formatTime = (date: Date) => date.toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true });
-
-  const handleBackPress = () => router.back();
-
-  const handleRetry = () => {
-    setLoading(true);
-    setError(null);
-    loadCoachData();
-  };
-
-  if (loading || purchaseLoading) {
+  
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#6366f1" />
-        <Text style={styles.loadingText}>{loading ? 'Loading health coach profile...' : 'Verifying account status...'}</Text>
-        <Text style={styles.loadingSubtext}>Please wait a moment</Text>
-      </View>
+        <Text style={styles.loadingText}>Loading coach details...</Text>
+      </SafeAreaView>
     );
   }
 
-  if (error || !coach) {
+  if (error) {
     return (
-      <View style={styles.errorContainer}>
-        <Ionicons name="alert-circle" size={48} color="#ef4444" />
-        <Text style={styles.errorText}>{error || 'Failed to load profile. Check your connection and try again.'}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-          <Text style={styles.retryButtonText}>Try Again</Text>
+      <SafeAreaView style={styles.errorContainer}>
+        <Ionicons name="alert-circle" size={64} color="#ef4444" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
-      </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!coach) {
+    return (
+      <SafeAreaView style={styles.errorContainer}>
+        <Ionicons name="person-outline" size={64} color="#94a3b8" />
+        <Text style={styles.errorText}>Coach not found</Text>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
     );
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container} keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <ImageBackground source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }} style={styles.headerBackground}>
-          <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.9)']} style={styles.headerOverlay}>
-            <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-              <Ionicons name="arrow-back" size={24} color="#ffffff" />
-            </TouchableOpacity>
-
-            <View style={styles.header}>
-              <View style={[styles.initialsCircle, { backgroundColor: pastelColor }]}>
-                <Text style={styles.initials}>{initials}</Text>
-              </View>
-              <View style={styles.headerInfo}>
-                <Text style={styles.name}>{coach.name}</Text>
-                <Text style={styles.specialty}>{coach.specialty}</Text>
-                <View style={styles.ratingContainer}>
-                  <Ionicons name="star" size={16} color="#fbbf24" />
-                  <Text style={styles.rating}>{(coach.rating || 5.0).toFixed(1)}</Text>
-                  <Text style={styles.reviews}>({coach.reviews_count || 0} reviews)</Text>
-                </View>
-                {coach.location && (
-                  <View style={styles.locationContainer}>
-                    <Ionicons name="location" size={16} color="#6366f1" />
-                    <Text style={styles.location}>{coach.location}</Text>
-                  </View>
-                )}
-              </View>
-              <TouchableOpacity style={styles.favoriteButton} onPress={handleToggleFavorite}>
-                <Ionicons name={favorited ? 'heart' : 'heart-outline'} size={24} color={favorited ? '#ef4444' : '#94a3b8'} />
-              </TouchableOpacity>
+    <>
+      <Stack.Screen options={{ 
+        title: coach.name,
+        headerShown: true,
+        headerTintColor: '#ffffff',
+        headerBackTitle: 'Back',
+        headerStyle: {
+          backgroundColor: '#6366f1',
+        },
+        headerShadowVisible: false
+      }} />
+      
+      <ScrollView 
+        style={styles.container} 
+        contentContainerStyle={styles.contentContainer}
+        ref={scrollViewRef}
+        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+      >
+        <View style={styles.header}>
+          <Image 
+            source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }} 
+            style={styles.profileImage} 
+          />
+          <View style={styles.headerContent}>
+            <View style={styles.nameRow}>
+              <Text style={styles.name}>{coach.name}</Text>
+              {coach.is_verified && (
+                <Ionicons name="checkmark-circle" size={24} color="#6366f1" style={styles.verifiedIcon} />
+              )}
             </View>
-          </LinearGradient>
-        </ImageBackground>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About Me</Text>
-          <Text style={styles.bio}>{coach.bio || `I am a professional ${coach.specialty} coach with ${coach.years_experience || 'several'} years of experience. I specialize in helping clients achieve their health and wellness goals through personalized coaching and support.`}</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Details</Text>
-          <View style={styles.detailsGrid}>
-            <View style={styles.detailItem}>
-              <Ionicons name="time-outline" size={20} color="#6366f1" />
-              <Text style={styles.detailLabel}>Experience</Text>
-              <Text style={styles.detailValue}>{coach.years_experience || 'N/A'} years</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="star-outline" size={20} color="#6366f1" />
-              <Text style={styles.detailLabel}>Rating</Text>
-              <Text style={styles.detailValue}>{(coach.rating || 5.0).toFixed(1)}/5.0</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="people-outline" size={20} color="#6366f1" />
-              <Text style={styles.detailLabel}>Reviews</Text>
-              <Text style={styles.detailValue}>{coach.reviews_count || 0}</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="cash-outline" size={20} color="#6366f1" />
-              <Text style={styles.detailLabel}>Price</Text>
-              <Text style={styles.detailValue}>${coach.price || 'N/A'}</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name={coach.is_verified ? "checkmark-circle" : "checkmark-circle-outline"} size={20} color="#6366f1" />
-              <Text style={styles.detailLabel}>Verified</Text>
-              <Text style={styles.detailValue}>{coach.is_verified ? 'Yes' : 'No'}</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Ionicons name={coach.is_online ? "checkmark-done-circle" : "checkmark-done-circle-outline"} size={20} color="#6366f1" />
-              <Text style={styles.detailLabel}>Available</Text>
-              <Text style={styles.detailValue}>{coach.is_online ? 'Online' : 'Offline'}</Text>
+            <Text style={styles.specialty}>{coach.specialty}</Text>
+            <View style={styles.ratingContainer}>
+              <Ionicons name="star" size={16} color="#fbbf24" />
+              <Text style={styles.rating}>{(Number(coach.rating) || 5.0).toFixed(1)}</Text>
+              <Text style={styles.reviews}>({coach.reviews_count || 0} reviews)</Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.questionSection}>
-          <Text style={styles.sectionTitle}>Ask a Question</Text>
-          <Text style={styles.creditStatus}>Credits: {balance}</Text>
-          <TextInput style={styles.input} placeholder="Type your question here..." placeholderTextColor="#666666" value={question} onChangeText={setQuestion} multiline numberOfLines={4} editable={!sending} />
-          <TouchableOpacity style={[styles.submitButton, (sending || !question.trim()) && styles.submitButtonDisabled]} onPress={handleSubmitQuestion} disabled={sending || !question.trim()}>
-            {sending ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitButtonText}>Send Question</Text>}
-          </TouchableOpacity>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About</Text>
+          <Text style={styles.bio}>
+            {coach.bio || `${coach.name} is a professional health coach specializing in ${coach.specialty.toLowerCase()}. They are dedicated to helping clients achieve their health and wellness goals through personalized guidance and support.`}
+          </Text>
         </View>
 
-        <View style={styles.conversationSection}>
-          <Text style={styles.sectionTitle}>Conversation History</Text>
-          {conversation.length === 0 ? (
-            <View style={styles.emptyConversation}>
-              <Ionicons name="chatbubble-outline" size={48} color="#333333" />
-              <Text style={styles.emptyConversationText}>No messages yet. Start the conversation by asking a question.</Text>
-            </View>
-          ) : (
-            conversation.map((message) => (
-              <View key={message.id} style={[styles.messageContainer, message.sender === 'user' ? styles.userMessage : styles.coachMessage]}>
-                <View style={styles.messageHeader}>
-                  <Text style={styles.messageSender}>{message.sender === 'user' ? 'You' : coach.name}</Text>
-                  <Text style={styles.messageTime}>{formatTime(message.timestamp)}</Text>
-                </View>
-                <Text style={styles.messageText}>{message.text}</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Expertise</Text>
+          <View style={styles.tagsContainer}>
+            {coach.tags?.map((tag, index) => (
+              <View key={index} style={styles.tag}>
+                <Text style={styles.tagText}>{tag}</Text>
               </View>
-            ))
-          )}
+            )) || 
+            ['Health', 'Wellness', coach.specialty].map((tag, index) => (
+              <View key={index} style={styles.tag}>
+                <Text style={styles.tagText}>{tag}</Text>
+              </View>
+            ))}
+          </View>
         </View>
+        
+        <View style={styles.messageSection}>
+          <Text style={styles.sectionTitle}>Send a Message</Text>
+          <Text style={styles.creditsInfo}>
+            Balance: {balance} credits • Cost per message: {CREDITS_PER_MESSAGE} credits
+          </Text>
+          <View style={styles.messageInputContainer}>
+            <TextInput
+              style={styles.messageInput}
+              placeholder="Type your message here..."
+              multiline
+              value={message}
+              onChangeText={setMessage}
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, (!message.trim() || isSending) && styles.disabledButton]}
+              onPress={handleSendMessage}
+              disabled={!message.trim() || isSending}
+            >
+              {isSending ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <Ionicons name="send" size={20} color="#ffffff" />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.bookButton}
+          onPress={() => Alert.alert('Book Session', `Book a session with ${coach.name}`)}
+        >
+          <LinearGradient
+            colors={['#6366f1', '#4f46e5']}
+            style={styles.gradientButton}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <Text style={styles.bookButtonText}>Book a Session</Text>
+          </LinearGradient>
+        </TouchableOpacity>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  loadingContainer: { flex: 1, backgroundColor: '#f8fafc', justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#1e293b', fontSize: 16, marginTop: 16 },
-  loadingSubtext: { color: '#64748b', fontSize: 14, marginTop: 8 },
-  errorContainer: { flex: 1, backgroundColor: '#f8fafc', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  errorText: { color: '#1e293b', fontSize: 16, textAlign: 'center', marginTop: 16, marginBottom: 24 },
-  retryButton: { backgroundColor: '#6366f1', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 },
-  retryButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  scrollView: { flex: 1 },
-  scrollContent: { flexGrow: 1 },
-  headerBackground: { width: '100%', height: 300 },
-  headerOverlay: { width: '100%', height: '100%', paddingTop: 60 },
-  header: { flexDirection: 'row', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.1)', alignItems: 'center' },
-  backButton: { position: 'absolute', top: 20, left: 20, zIndex: 10, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center' },
-  initialsCircle: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#6366f1' },
-  initials: { fontSize: 32, fontWeight: '600', color: '#1a1a1a' },
-  headerInfo: { marginLeft: 15, flex: 1 },
-  favoriteButton: { padding: 8, alignSelf: 'flex-start' },
-  name: { fontSize: 24, fontWeight: '600', color: '#ffffff', marginBottom: 4 },
-  specialty: { fontSize: 16, color: '#94a3b8', marginBottom: 8 },
-  ratingContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  rating: { fontSize: 16, fontWeight: '600', color: '#ffffff', marginLeft: 4 },
-  reviews: { fontSize: 14, color: '#94a3b8', marginLeft: 4 },
-  locationContainer: { flexDirection: 'row', alignItems: 'center' },
-  location: { fontSize: 14, color: '#94a3b8', marginLeft: 4 },
-  section: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#ffffff' },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#1e293b', marginBottom: 12 },
-  bio: { fontSize: 16, color: '#64748b', lineHeight: 24 },
-  detailsGrid: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap' },
-  detailItem: { alignItems: 'center', width: '33%', marginBottom: 16 },
-  detailLabel: { fontSize: 14, color: '#64748b', marginTop: 4 },
-  detailValue: { fontSize: 14, color: '#1e293b', marginTop: 2, textAlign: 'center' },
-  questionSection: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#e2e8f0', backgroundColor: '#ffffff' },
-  creditStatus: { fontSize: 14, color: '#64748b', marginBottom: 8 },
-  input: { backgroundColor: '#f1f5f9', borderRadius: 12, padding: 16, color: '#1e293b', fontSize: 16, minHeight: 120, textAlignVertical: 'top', marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' },
-  submitButton: { backgroundColor: '#6366f1', borderRadius: 12, padding: 16, alignItems: 'center', shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 },
-  submitButtonDisabled: { backgroundColor: '#94a3b8' },
-  submitButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  conversationSection: { padding: 20, backgroundColor: '#ffffff' },
-  emptyConversation: { alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: '#f1f5f9', borderRadius: 12 },
-  emptyConversationText: { color: '#64748b', fontSize: 16, textAlign: 'center', marginTop: 16 },
-  messageContainer: { marginBottom: 16, padding: 16, borderRadius: 12 },
-  userMessage: { backgroundColor: '#f1f5f9', marginLeft: 32 },
-  coachMessage: { backgroundColor: '#eef2ff', marginRight: 32 },
-  messageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  messageSender: { color: '#1e293b', fontWeight: '600', fontSize: 14 },
-  messageTime: { color: '#64748b', fontSize: 12 },
-  messageText: { color: '#1e293b', fontSize: 16, lineHeight: 24 },
-  headerTitle: { fontSize: 24, fontWeight: '600', color: '#ffffff', marginLeft: 20 },
-  content: { flexGrow: 1 },
+  container: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  contentContainer: {
+    padding: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginRight: 16,
+  },
+  headerContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  name: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    marginBottom: 4,
+  },
+  verifiedIcon: {
+    marginLeft: 8,
+  },
+  specialty: {
+    fontSize: 16,
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rating: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginLeft: 4,
+  },
+  reviews: {
+    fontSize: 14,
+    color: '#64748b',
+    marginLeft: 4,
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 12,
+  },
+  bio: {
+    fontSize: 15,
+    color: '#475569',
+    lineHeight: 22,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  tag: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  tagText: {
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  messageSection: {
+    marginBottom: 24,
+  },
+  creditsInfo: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 12,
+  },
+  messageInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 16,
+  },
+  messageInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 12,
+    minHeight: 100,
+    maxHeight: 150,
+    backgroundColor: '#ffffff',
+    fontSize: 15,
+    color: '#1e293b',
+  },
+  sendButton: {
+    backgroundColor: '#6366f1',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  bookButton: {
+    marginTop: 8,
+    marginBottom: 40,
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 4,
+  },
+  gradientButton: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bookButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#64748b',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8fafc',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  backButton: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });

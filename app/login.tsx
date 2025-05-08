@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -33,6 +34,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const isRedirecting = useRef(false);
 
   // Add keyboard listeners
   React.useEffect(() => {
@@ -97,7 +99,7 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (loading) return;
+    if (loading || isRedirecting.current) return;
     
     if (!form.email || !form.password) {
       setError('Please enter both email and password');
@@ -113,23 +115,25 @@ export default function LoginScreen() {
       if (result.success) {
         console.log('Login successful, redirecting to tabs');
         
-        // For an existing user who's logging in, ensure they're marked as onboarded
-        // This solves the issue of being redirected to onboarding screens
-        try {
-          const { completeOnboarding } = await import('../context/OnboardingContext').then(mod => ({
-            completeOnboarding: mod.useOnboarding().completeOnboarding
-          }));
-          
-          // Mark user as onboarded without specific type
-          // This will ensure the NavigationGuard doesn't redirect to onboarding
-          await completeOnboarding();
-          console.log('User marked as onboarded');
-        } catch (onboardingError) {
-          console.error('Error marking user as onboarded:', onboardingError);
-        }
+        isRedirecting.current = true;
         
-        // Directly navigate to main app
-        router.replace('/(tabs)');
+        // For an existing user who's logging in, ensure they're marked as onboarded
+        try {
+          // Mark user as onboarded in AsyncStorage
+          await AsyncStorage.setItem('onboarded', 'true');
+          
+          // Clear any new registration flag that might exist
+          await AsyncStorage.removeItem('registration_status');
+          
+          console.log('Returning user marked as onboarded');
+          
+          // Directly navigate to main app with no delay
+          router.replace('/(tabs)');
+        } catch (error) {
+          console.error('Error marking user as onboarded:', error);
+          // Still try to navigate even if setting storage failed
+          router.replace('/(tabs)');
+        }
       } else {
         setError('Invalid credentials. Please check your email and password.');
       }

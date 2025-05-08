@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "developmentClient": true,
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/icon.png",
     "scheme": "com.biruk123.healthCoach",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,

@@ -77,6 +77,17 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const initialRenderRef = useRef(true);
   const [directedToOnboarding, setDirectedToOnboarding] = useState(false);
+  const isInitialRender = useRef(true);
+  // Track if the user just registered (vs logged in)
+  const [isNewRegistration, setIsNewRegistration] = useState(false);
+  // Add a nav lock to prevent multiple redirects
+  const isNavigating = useRef(false);
+  // Track first app load to handle direct routing properly
+  const isFirstLoad = useRef(true);
+  // Track route history to prevent duplicate navigation to the same route
+  const lastRoute = useRef('');
+  // Track time of last navigation to prevent rapid redirects
+  const lastNavigationTime = useRef(0);
 
   // Helper function to directly check AsyncStorage for onboarding status
   const getOnboardingStatusFromStorage = async () => {
@@ -89,7 +100,106 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Helper function to check if user is newly registered
+  const checkRegistrationStatus = async () => {
+    try {
+      const registrationStatus = await AsyncStorage.getItem('registration_status');
+      // If we have a new registration flag, use it then clear it
+      if (registrationStatus === 'new') {
+        console.log('NavigationGuard - User is newly registered');
+        await AsyncStorage.removeItem('registration_status');
+        setIsNewRegistration(true);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error checking registration status:', error);
+      return false;
+    }
+  };
+
+  // Safely execute navigation with debouncing
+  const navigateSafely = (destination: string) => {
+    // Prevent duplicate navigation to the same route
+    if (lastRoute.current === destination) {
+      console.log(`NavigationGuard - Already navigated to ${destination}, skipping duplicate navigation`);
+      return;
+    }
+    
+    // Prevent navigation if we've navigated recently (within 1 second)
+    const now = Date.now();
+    if (now - lastNavigationTime.current < 1000) {
+      console.log('NavigationGuard - Navigation attempted too quickly, throttling');
+      return;
+    }
+    
+    // Set the navigation lock
+    isNavigating.current = true;
+    lastRoute.current = destination;
+    lastNavigationTime.current = now;
+    
+    console.log(`NavigationGuard - Navigating to ${destination}`);
+    router.replace(destination);
+  };
+
+  // Initial load effect - check auth status and perform initial routing
   useEffect(() => {
+    const initialCheck = async () => {
+      if (user && isFirstLoad.current) {
+        isFirstLoad.current = false;
+        
+        // Check if this is a returning user (has completed onboarding)
+        const isOnboardedFromStorage = await getOnboardingStatusFromStorage();
+        
+        // For returning users (who have completed onboarding), go directly to tabs
+        if (isOnboardedFromStorage) {
+          console.log('NavigationGuard - App initial load, returning user - going to tabs');
+          navigateSafely('/(tabs)');
+        } else {
+          // For new registrations, check the registration status
+          const isNewUser = await checkRegistrationStatus();
+          
+          if (isNewUser) {
+            console.log('NavigationGuard - App initial load, new user - going to onboarding selection');
+            navigateSafely('/onboarding-select');
+          }
+        }
+      }
+    };
+    
+    initialCheck();
+  }, [user, router]);
+
+  useEffect(() => {
+    // Check registration status on mount
+    checkRegistrationStatus();
+  }, []);
+
+  // Reset navigation lock when route changes
+  useEffect(() => {
+    const currentRoute = segments[0] || '';
+    
+    // If we've navigated to a different route than our last navigation target,
+    // we can release the navigation lock
+    if (currentRoute !== '' && lastRoute.current !== '' && currentRoute !== lastRoute.current) {
+      console.log(`NavigationGuard - Route changed from ${lastRoute.current} to ${currentRoute}, resetting navigation lock`);
+      isNavigating.current = false;
+    }
+  }, [segments]);
+
+  useEffect(() => {
+    // Skip navigation on the very first render to prevent flashing
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+      return;
+    }
+
+    // If already navigating, prevent additional navigation attempts
+    if (isNavigating.current) {
+      console.log('NavigationGuard - Navigation in progress, skipping redirect check');
+      return;
+    }
+
     const checkAndRedirect = async () => {
       // Public routes that don't require authentication
       const publicRoutes = [
@@ -122,11 +232,12 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
       // Check if we're in the tabs section
       const isTabsRoute = currentRoute === '(tabs)';
       
-      // Check if the current path is in the relevant route groups
-      const isPublicRoute = publicRoutes.includes(currentRoute);
+      // Handle detail page (fix for [id].tsx not redirecting)
+      const isDetailPage = currentRoute === '[id]';
+
+      // Helper function to check if the current route is in the personalization flow
       const isPersonalizationRoute = personalizationRoutes.includes(currentRoute);
-      const isSpecialRoute = specialRoutes.includes(currentRoute);
-      
+
       // Welcome page is always accessible
       if (currentRoute === '' || currentRoute === 'index') {
         return;
@@ -138,62 +249,78 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      console.log('Current route:', currentRoute);
-      console.log('Is public route:', isPublicRoute);
-      console.log('Is personalization route:', isPersonalizationRoute);
-      console.log('User:', user ? 'Logged in' : 'Not logged in');
-      console.log('Is onboarded from context:', isOnboarded);
+      console.log('NavigationGuard - Current route:', currentRoute);
+      console.log('NavigationGuard - User:', user ? 'Logged in' : 'Not logged in');
+      console.log('NavigationGuard - Is onboarded from context:', isOnboarded);
+      console.log('NavigationGuard - Is new registration:', isNewRegistration);
       
-      // For login cases, use direct AsyncStorage check
+      // Important: Don't redirect on detail page when user is logged in
+      if (isDetailPage && user) {
+        console.log('NavigationGuard - Allowing access to detail page for logged in user');
+        return;
+      }
+      
       if (user) {
-        const isOnboardedFromStorage = await getOnboardingStatusFromStorage();
-        console.log('Is onboarded from storage:', isOnboardedFromStorage);
-        
         // User is authenticated - check onboarding status
+        const isOnboardedFromStorage = await getOnboardingStatusFromStorage();
+        console.log('NavigationGuard - Is onboarded from storage:', isOnboardedFromStorage);
+        
+        // HANDLING FOR RETURNING USERS (already onboarded)
         if (isOnboardedFromStorage) {
-          // User is onboarded
+          // User is authenticated and onboarded
           if (isPersonalizationRoute) {
             // User is already onboarded but trying to access onboarding screens
-            console.log('User already onboarded, redirecting to main app');
-            router.replace('/(tabs)');
+            console.log('NavigationGuard - User already onboarded, redirecting to main app');
+            navigateSafely('/(tabs)');
             return;
           }
-        } else {
-          // User is not onboarded
-          if (isTabsRoute) {
-            // User is trying to access main app without onboarding
-            console.log('User not onboarded, redirecting to onboarding selection');
-            
-            // Prevent redirect loops
-            if (!directedToOnboarding) {
-              setDirectedToOnboarding(true);
-              router.replace('/onboarding-select');
-            }
+          
+          // If user is in login screen but already logged in and onboarded, send to tabs
+          if (currentRoute === 'login') {
+            console.log('NavigationGuard - Logged in user on login screen, redirecting to tabs');
+            navigateSafely('/(tabs)');
             return;
           }
-        }
-        
-        // Handle login/onboarding screens for authenticated users
-        if (currentRoute === 'login' || currentRoute === 'onboarding') {
-          if (isOnboardedFromStorage) {
-            console.log('Redirecting authenticated and onboarded user to main app');
-            router.replace('/(tabs)');
-          } else {
-            console.log('Redirecting authenticated but not onboarded user to complete onboarding');
-            router.replace('/onboarding-select');
+        } 
+        // HANDLING FOR NEW USERS (not onboarded yet)
+        else {
+          // If this is a newly registered user, they should go to onboarding-select
+          if (isNewRegistration && !isPersonalizationRoute && currentRoute !== 'onboarding-select') {
+            console.log('NavigationGuard - Newly registered user, redirecting to onboarding selection');
+            navigateSafely('/onboarding-select');
+            return;
+          }
+          
+          // User is authenticated but NOT onboarded (and not a new registration)
+          // User is trying to access main app without onboarding
+          if (isTabsRoute && !directedToOnboarding) {
+            console.log('NavigationGuard - User not onboarded, redirecting to onboarding selection');
+            setDirectedToOnboarding(true);
+            navigateSafely('/onboarding-select');
+            return;
+          }
+          
+          // Handle login screen for authenticated but not onboarded users
+          if (currentRoute === 'login') {
+            console.log('NavigationGuard - Authenticated but not onboarded user on login screen');
+            navigateSafely('/onboarding-select');
+            return;
           }
         }
       } else {
         // Not authenticated
-        if (isTabsRoute || (!isPublicRoute && !isSpecialRoute)) {
-          console.log('Redirecting unauthenticated user to welcome page');
-          router.replace('/');
+        const requiresAuth = !publicRoutes.includes(currentRoute) && !specialRoutes.includes(currentRoute);
+        
+        if (requiresAuth) {
+          console.log('NavigationGuard - Unauthenticated user trying to access protected route, redirecting to welcome');
+          navigateSafely('/');
+          return;
         }
       }
     };
 
     checkAndRedirect();
-  }, [user, isOnboarded, segments, router, directedToOnboarding]);
+  }, [user, isOnboarded, segments, router, directedToOnboarding, isNewRegistration]);
 
   return <>{children}</>;
 }

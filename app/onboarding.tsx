@@ -191,7 +191,7 @@ export default function OnboardingScreen() {
   };
 
   const handleNext = async () => {
-    if (loading) return;
+    if (loading || isNavigating) return;
     
     // Special handling for intro slides
     if (showIntro) {
@@ -280,12 +280,31 @@ export default function OnboardingScreen() {
           await AsyncStorage.removeItem('onboarded');
           await AsyncStorage.removeItem('userType');
           
-          // Need a small delay before redirecting to ensure context is updated
-          setTimeout(() => {
-            // Use router.replace instead of push to prevent back navigation
-            setIsNavigating(true);
-            router.replace('/onboarding-select');
-          }, 500);
+          // Set a flag to indicate this is a new registration and store it BEFORE navigation
+          await AsyncStorage.setItem('registration_status', 'new');
+          
+          // Set navigation flag to prevent multiple redirects
+          setIsNavigating(true);
+          
+          // Prevent any more attempts to redirect after first one
+          const navigateOnce = (destination: string) => {
+            if (!router || !router.replace) {
+              console.error('Navigation error: router not available');
+              return;
+            }
+            
+            try {
+              console.log('Navigating to:', destination);
+              // Use hardcoded string path to avoid issues with object serialization
+              router.replace(destination);
+            } catch (error) {
+              console.error('Navigation error:', error);
+            }
+          };
+          
+          // Directly navigate to onboarding-select - NO RETRIES OR FALLBACKS
+          // This helps prevent multiple navigation attempts
+          navigateOnce('/onboarding-select');
         } else {
           handleRegistrationError(registerResult.error);
         }
@@ -721,7 +740,6 @@ const styles = StyleSheet.create({
     },
     shadowOpacity: 0.1,
     shadowRadius: 12,
-    elevation: 8,
   },
   slideContent: {
     flex: 1,

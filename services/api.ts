@@ -229,7 +229,13 @@ export const getHealthCoaches = async (params: HealthCoachSearchParams = {}) => 
     
     const queryParams = new URLSearchParams();
     
-    if (params.specialty) queryParams.append('specialty', params.specialty);
+    // Make sure specialty is lowercase and only added if it's defined
+    if (params.specialty) {
+      const specialty = params.specialty.toLowerCase();
+      queryParams.append('specialty', specialty);
+      console.log(`Filtering by specialty: ${specialty}`);
+    }
+    
     if (params.rating) queryParams.append('rating', params.rating.toString());
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.limit || params.pageSize) {
@@ -248,15 +254,29 @@ export const getHealthCoaches = async (params: HealthCoachSearchParams = {}) => 
     const data = await response.json();
     console.log(`Digital Ocean API returned ${data.coaches?.length || 0} coaches`);
     
+    // If API returned no coaches, return a specific "no results" response
+    // This will allow the main getHealthCoaches function to detect this and fall back
+    if (!data.coaches || data.coaches.length === 0) {
+      console.log('Digital Ocean API returned no coaches, indicating fallback should be used');
+      return {
+        coaches: [],
+        total: 0,
+        page: params.page || 1,
+        pageSize: params.pageSize || 20,
+        totalPages: 0,
+        requiresFallback: true // Special flag to indicate fallback should be used
+      };
+    }
+    
     return {
       coaches: data.coaches || [],
       total: data.total || 0,
-      page: data.page || params.page || 1,
-      pageSize: data.pageSize || params.pageSize || 20,
-      totalPages: data.totalPages || 0
+      page: data.page || 1,
+      pageSize: data.pageSize || 20,
+      totalPages: data.totalPages || 1
     };
   } catch (error) {
-    console.error('Failed to fetch health coaches from Digital Ocean:', error);
+    console.error('Error fetching from Digital Ocean API:', error);
     throw error;
   }
 };

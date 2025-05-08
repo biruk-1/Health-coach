@@ -4,17 +4,16 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev:client": "cross-env EXPO_NO_TELEMETRY=1 expo start --web",
+    "dev:client": "cross-env NODE_OPTIONS=--max_old_space_size=4096 EXPO_NO_TELEMETRY=1 expo start --web",
     "dev:server": "cd server && npm run dev",
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
-    "build:web": "expo export --platform web",
+    "build:web": "cross-env NODE_OPTIONS=--max_old_space_size=4096 expo export --platform web",
     "lint": "expo lint",
     "import-psychics": "node scripts/import-psychics.js",
     "import-csv": "node scripts/import-csv-to-database.js",
     "admin": "node admin/server.js",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "postinstall": "node scripts/setup-firebase.js"
+    "android": "cross-env NODE_OPTIONS=--max_old_space_size=4096 expo run:android",
+    "ios": "cross-env NODE_OPTIONS=--max_old_space_size=4096 expo run:ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.0.0",
@@ -77,7 +76,8 @@
     "twilio": "^4.19.0",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "expo-build-properties": "~0.11.1"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
@@ -87,6 +87,7 @@
     "@types/node": "^20.10.5",
     "@types/react": "~18.2.45",
     "@types/uuid": "^9.0.7",
+    "cross-env": "^7.0.3",
     "csv-parse": "^5.5.2",
     "dotenv": "^16.3.1",
     "html-loader": "^4.2.0",

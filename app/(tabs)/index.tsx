@@ -129,18 +129,26 @@ export default function CoachesScreen() {
     }
   }, [error, retryCount]);
 
+  useEffect(() => {
+    // Reset to page 1 when filter changes and reload coaches
+    setCurrentPage(1);
+    loadCoaches(1, false);
+  }, [selectedType]);
+
   const loadCoaches = async (page = 1, append = false) => {
     try {
       console.log('==== LOAD COACHES START ====');
       console.log('loadCoaches called with page:', page, 'append:', append);
+      console.log('Current selectedType:', selectedType);
       setError(null);
       if (!isRefreshing && !append) setIsLoading(true);
       if (append) setLoadingMore(true);
 
       const pageSize = 20;
 
+      // Make sure the specialty is properly formatted and only passed if not 'all'
       const searchParams = {
-        specialty: selectedType === 'all' ? undefined : selectedType,
+        specialty: selectedType !== 'all' ? selectedType : undefined,
         page,
         pageSize,
         searchTerm: searchTerm || undefined,
@@ -173,6 +181,12 @@ export default function CoachesScreen() {
         setPractitioners((prev) => [...prev, ...(result?.coaches || [])]);
       } else {
         setPractitioners(result?.coaches || []);
+      }
+
+      // If no coaches were found, retry once with fallback data
+      if (result?.coaches?.length === 0 && !append) {
+        console.log('No coaches found, ensuring fallback data is initialized');
+        await initializeDatabase();
       }
 
       console.log('DEBUG: State updated with coaches count:', result?.coaches?.length || 0);
@@ -251,7 +265,7 @@ export default function CoachesScreen() {
             </Text>
             <View style={styles.ratingContainer}>
               <Ionicons name="star" size={16} color="#fbbf24" />
-              <Text style={styles.rating}>{(item.rating || 5.0).toFixed(1)}</Text>
+              <Text style={styles.rating}>{(Number(item.rating) || 5.0).toFixed(1)}</Text>
               <Text style={styles.reviews}>({item.reviews_count || 0} reviews)</Text>
             </View>
             {item.location && (
@@ -352,7 +366,10 @@ export default function CoachesScreen() {
                   <TouchableOpacity
                     key={type}
                     style={[styles.storyCircle, selectedType === type.toLowerCase() && styles.storyCircleActive]}
-                    onPress={() => setSelectedType(type.toLowerCase() as PractitionerType)}
+                    onPress={() => {
+                      console.log(`Setting type to: ${type.toLowerCase()}`);
+                      setSelectedType(type.toLowerCase() as PractitionerType);
+                    }}
                   >
                     <LinearGradient colors={['#818cf8', '#6366f1']} style={styles.storyGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                       <View style={styles.storyInner}>
@@ -474,7 +491,10 @@ export default function CoachesScreen() {
                 <TouchableOpacity
                   key={type}
                   style={[styles.storyCircle, selectedType === type.toLowerCase() && styles.storyCircleActive]}
-                  onPress={() => setSelectedType(type.toLowerCase() as PractitionerType)}
+                  onPress={() => {
+                    console.log(`Setting type to: ${type.toLowerCase()}`);
+                    setSelectedType(type.toLowerCase() as PractitionerType);
+                  }}
                 >
                   <LinearGradient colors={['#818cf8', '#6366f1']} style={styles.storyGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
                     <View style={styles.storyInner}>

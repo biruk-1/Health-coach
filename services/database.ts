@@ -510,7 +510,15 @@ export const getHealthCoaches = async (
   try {
     console.log('🌟 Using Digital Ocean API for health coaches');
     // Use the Digital Ocean API instead of Supabase
-    return await apiGetHealthCoaches(params);
+    const apiResult = await apiGetHealthCoaches(params);
+    
+    // Check if the API returned no results and indicates fallback should be used
+    if (apiResult.requiresFallback || (apiResult.coaches && apiResult.coaches.length === 0)) {
+      console.log('⚠️ API returned no results, falling back to local data');
+      return fallbackGetHealthCoaches(params);
+    }
+    
+    return apiResult;
   } catch (error) {
     console.error('Error fetching health coaches from Digital Ocean:', error);
     console.log('⚠️ Falling back to local cache for health coaches');
@@ -554,10 +562,16 @@ export const fallbackGetHealthCoaches = async (
     let filteredCoaches = [...cachedCoaches];
     
     if (params.specialty && params.specialty !== 'all') {
+      // Convert specialty to lowercase for case-insensitive comparison
+      const specialty = params.specialty.toLowerCase();
+      console.log(`Filtering by specialty: ${specialty}`);
+      
       filteredCoaches = filteredCoaches.filter((coach) => {
-        return coach.specialty?.toLowerCase() === params.specialty?.toLowerCase();
+        // Make coach specialty lowercase for comparison
+        const coachSpecialty = coach.specialty?.toLowerCase() || '';
+        return coachSpecialty === specialty;
       });
-      console.log(`Filtered to ${filteredCoaches.length} coaches with specialty: ${params.specialty}`);
+      console.log(`Filtered to ${filteredCoaches.length} coaches with specialty: ${specialty}`);
     }
 
     // Filter by rating if provided
@@ -834,4 +848,17 @@ export const fallbackCoaches: HealthCoach[] = [
     is_verified: true,
     is_online: false
   }
-]; 
+];
+
+/**
+ * Get a health coach by ID - this is the function used by [id].tsx
+ */
+export const getHealthCoachById = async (id: string): Promise<HealthCoach | null> => {
+  try {
+    console.log('Getting health coach by ID:', id);
+    return await getCoachById(id);
+  } catch (error) {
+    console.error('Error in getHealthCoachById:', error);
+    return null;
+  }
+}; 
