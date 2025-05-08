@@ -25,9 +25,9 @@ export default function CoachDetailScreen() {
     // This prevents the component from redirecting itself
     
     async function loadCoachDetails() {
-      try {
-        setLoading(true);
-        setError(null);
+    try {
+      setLoading(true);
+      setError(null);
         console.log('Loading coach details for ID:', id);
         
         if (!id) {
@@ -45,9 +45,9 @@ export default function CoachDetailScreen() {
       } catch (err) {
         console.error('Error loading coach:', err);
         setError(err.message || 'Failed to load coach details');
-      } finally {
-        setLoading(false);
-      }
+    } finally {
+      setLoading(false);
+    }
     }
 
     loadCoachDetails();
@@ -69,15 +69,11 @@ export default function CoachDetailScreen() {
           { 
             text: "Add Credits", 
             onPress: () => {
-              // Navigate to purchase screen
-              router.push({
-                pathname: '/PurchaseScreen',
+              // Navigate to purchase screen using replace to prevent navigation stack issues
+              router.replace({
+                pathname: '/settings/add-funds',
                 params: {
-                  screenTitle: 'Purchase Credits',
-                  iconName: 'wallet',
-                  onCloseRoute: `/[id]?id=${id}`,
-                  successRoute: `/[id]?id=${id}`,
-                  successMessage: 'You have successfully purchased'
+                  returnToId: id
                 }
               });
             } 
@@ -90,13 +86,13 @@ export default function CoachDetailScreen() {
     setIsSending(true);
     
     // Simulate sending message
-    setTimeout(() => {
+      setTimeout(() => {
       // Would normally deduct credits through an API call
       Alert.alert("Message Sent", `Your message has been sent to ${coach?.name}. ${CREDITS_PER_MESSAGE} credits have been deducted from your balance.`);
       setMessage('');
       setIsSending(false);
       refreshBalance(); // Refresh balance after sending
-    }, 1000);
+      }, 1000);
   };
   
   if (loading) {
@@ -157,7 +153,7 @@ export default function CoachDetailScreen() {
         ref={scrollViewRef}
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
-        <View style={styles.header}>
+            <View style={styles.header}>
           <Image 
             source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }} 
             style={styles.profileImage} 
@@ -168,12 +164,12 @@ export default function CoachDetailScreen() {
               {coach.is_verified && (
                 <Ionicons name="checkmark-circle" size={24} color="#6366f1" style={styles.verifiedIcon} />
               )}
-            </View>
-            <Text style={styles.specialty}>{coach.specialty}</Text>
-            <View style={styles.ratingContainer}>
-              <Ionicons name="star" size={16} color="#fbbf24" />
+              </View>
+                <Text style={styles.specialty}>{coach.specialty}</Text>
+                <View style={styles.ratingContainer}>
+                  <Ionicons name="star" size={16} color="#fbbf24" />
               <Text style={styles.rating}>{(Number(coach.rating) || 5.0).toFixed(1)}</Text>
-              <Text style={styles.reviews}>({coach.reviews_count || 0} reviews)</Text>
+                  <Text style={styles.reviews}>({coach.reviews_count || 0} reviews)</Text>
             </View>
           </View>
         </View>
@@ -191,16 +187,16 @@ export default function CoachDetailScreen() {
             {coach.tags?.map((tag, index) => (
               <View key={index} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
-              </View>
+            </View>
             )) || 
             ['Health', 'Wellness', coach.specialty].map((tag, index) => (
               <View key={index} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
-              </View>
+            </View>
             ))}
           </View>
         </View>
-        
+
         <View style={styles.messageSection}>
           <Text style={styles.sectionTitle}>Send a Message</Text>
           <Text style={styles.creditsInfo}>
@@ -224,8 +220,8 @@ export default function CoachDetailScreen() {
               ) : (
                 <Ionicons name="send" size={20} color="#ffffff" />
               )}
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
+        </View>
         </View>
 
         <TouchableOpacity

@@ -7,6 +7,7 @@
     "dev:client": "cross-env NODE_OPTIONS=--max_old_space_size=4096 EXPO_NO_TELEMETRY=1 expo start --web",
     "dev:server": "cd server && npm run dev",
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "start": "cross-env NODE_OPTIONS=--max_old_space_size=8192 expo start",
     "build:web": "cross-env NODE_OPTIONS=--max_old_space_size=4096 expo export --platform web",
     "lint": "expo lint",
     "import-psychics": "node scripts/import-psychics.js",

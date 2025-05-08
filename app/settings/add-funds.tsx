@@ -1,14 +1,21 @@
 // app/settings/add-funds.tsx
 import React from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import PurchaseScreen from '../PurchaseScreen';
 
 export default function AddFundsScreen() {
+  const { returnToId } = useLocalSearchParams();
+  
+  // Determine the return route based on parameters
+  const onCloseRoute = returnToId ? `/[id]?id=${returnToId}` : '/(tabs)/settings';
+  const successRoute = returnToId ? `/[id]?id=${returnToId}` : '/(tabs)/settings';
+  
   return (
     <PurchaseScreen 
       screenTitle="Add Funds" 
       iconName="wallet" 
-      onCloseRoute="/(tabs)/settings" 
-      successRoute="/(tabs)/settings" 
+      onCloseRoute={onCloseRoute} 
+      successRoute={successRoute} 
       successMessage="Successfully added" 
     />
   );

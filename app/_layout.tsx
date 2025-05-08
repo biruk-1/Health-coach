@@ -104,10 +104,10 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
   const checkRegistrationStatus = async () => {
     try {
       const registrationStatus = await AsyncStorage.getItem('registration_status');
-      // If we have a new registration flag, use it then clear it
-      if (registrationStatus === 'new') {
-        console.log('NavigationGuard - User is newly registered');
-        await AsyncStorage.removeItem('registration_status');
+      // If we have a new registration flag, use it but DON'T remove it
+      // to ensure consistency across multiple checks
+      if (registrationStatus && registrationStatus.startsWith('new_')) {
+        console.log('NavigationGuard - User is newly registered with timestamp:', registrationStatus);
         setIsNewRegistration(true);
         return true;
       }
@@ -148,27 +148,60 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
       if (user && isFirstLoad.current) {
         isFirstLoad.current = false;
         
-        // Check if this is a returning user (has completed onboarding)
-        const isOnboardedFromStorage = await getOnboardingStatusFromStorage();
-        
-        // For returning users (who have completed onboarding), go directly to tabs
-        if (isOnboardedFromStorage) {
-          console.log('NavigationGuard - App initial load, returning user - going to tabs');
-          navigateSafely('/(tabs)');
-        } else {
-          // For new registrations, check the registration status
-          const isNewUser = await checkRegistrationStatus();
-          
-          if (isNewUser) {
-            console.log('NavigationGuard - App initial load, new user - going to onboarding selection');
-            navigateSafely('/onboarding-select');
+        // Check for navigation lock first
+        try {
+          const lastNavigationTime = await AsyncStorage.getItem('last_navigation_timestamp');
+          if (lastNavigationTime) {
+            const timeSinceLastNavigation = Date.now() - parseInt(lastNavigationTime);
+            // If navigation happened within the last 3 seconds, skip any redirect
+            if (timeSinceLastNavigation < 3000) {
+              console.log('initialCheck - Recent navigation detected, respecting navigation lock');
+              return;
+            }
           }
+        } catch (error) {
+          console.error('Error checking navigation lock:', error);
         }
+        
+        // For new registrations, check the registration status
+        const isNewUser = await checkRegistrationStatus();
+        
+        // HIGHEST PRIORITY: If this is a newly registered user, ALWAYS send to onboarding-select
+        if (isNewUser) {
+          console.log('NavigationGuard - App initial load, new user - going to onboarding selection');
+          
+          // Set a navigation lock timestamp before navigating
+          await AsyncStorage.setItem('last_navigation_timestamp', Date.now().toString());
+          
+          navigateSafely('/onboarding-select');
+          return; // Exit early to prevent any other redirects
+        }
+        
+        // Only redirect existing users to tabs if they're not on a special route
+        console.log('NavigationGuard - App initial load, returning user');
+        
+        // Check current route before redirecting
+        const currentSegment = segments[0] || '';
+        const currentSubSegment = segments[1] || '';
+        
+        // Don't redirect if we're on a special route
+        const isSpecialRoute = 
+          currentSegment === '[id]' || 
+          currentSegment === 'PurchaseScreen' || 
+          (currentSegment === 'settings' && currentSubSegment === 'add-funds');
+        
+        if (isSpecialRoute) {
+          console.log('NavigationGuard - Special route detected, skipping redirect');
+          return;
+        }
+        
+        console.log('NavigationGuard - Redirecting to tabs');
+        navigateSafely('/(tabs)');
       }
     };
     
     initialCheck();
-  }, [user, router]);
+  }, [user, router, segments]);
 
   useEffect(() => {
     // Check registration status on mount
@@ -200,6 +233,71 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Check for recently applied navigation lock
+    const checkNavigationLock = async () => {
+      try {
+        const lastNavigationTime = await AsyncStorage.getItem('last_navigation_timestamp');
+        if (lastNavigationTime) {
+          const timeSinceLastNavigation = Date.now() - parseInt(lastNavigationTime);
+          // If navigation happened within the last 3 seconds, skip any redirect
+          if (timeSinceLastNavigation < 3000) {
+            console.log('NavigationGuard - Recent navigation detected, respecting navigation lock');
+            return true;
+          }
+        }
+        return false;
+      } catch (error) {
+        console.error('Error checking navigation lock:', error);
+        return false;
+      }
+    };
+
+    // Add special handling for the onboarding-select route for newly registered users
+    const checkRegistrationBeforeNavigation = async () => {
+      // First check for navigation lock
+      const isLocked = await checkNavigationLock();
+      if (isLocked) {
+        return true;
+      }
+
+      // Check current route
+      const currentRoute = segments[0] || '';
+      
+      // For onboarding-select route, do an immediate check for new registration status
+      // This is critical to prevent unwanted redirects
+      if (currentRoute === 'onboarding-select' && user) {
+        try {
+          const registrationStatus = await AsyncStorage.getItem('registration_status');
+          if (registrationStatus && registrationStatus.startsWith('new_')) {
+            console.log('NavigationGuard - Protecting onboarding-select for newly registered user');
+            setIsNewRegistration(true);
+            // Set navigation lock to prevent any conflicts with other checks
+            isNavigating.current = true;
+            setTimeout(() => {
+              isNavigating.current = false;
+            }, 1000);
+            return true;
+          }
+        } catch (error) {
+          console.error('Error checking registration status:', error);
+        }
+      }
+      return false;
+    };
+
+    // Immediately perform this check before any other navigation logic
+    checkRegistrationBeforeNavigation().then(isProtectedRoute => {
+      if (isProtectedRoute) {
+        console.log('NavigationGuard - Protected route detected, skipping other navigation checks');
+        return;
+      }
+
+      // Then proceed with regular navigation check
+      checkAndRedirect();
+    });
+  }, [user, isOnboarded, segments, router, directedToOnboarding, isNewRegistration]);
+
+  useEffect(() => {
     const checkAndRedirect = async () => {
       // Public routes that don't require authentication
       const publicRoutes = [
@@ -223,17 +321,27 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
         'verify-details', 
         'verify-success', 
         'psychic-onboarding',
-        'verify-coach'
+        'verify-coach',
+        'settings/add-funds',
+        'PurchaseScreen'
       ];
       
       // Get the current path from segments
       const currentRoute = segments[0] || '';
+      const currentSubRoute = segments[1] || '';
+      
+      // Check if we're in a settings subpath
+      const isSettingsPath = currentRoute === 'settings';
+      const isAddFundsPath = isSettingsPath && currentSubRoute === 'add-funds';
       
       // Check if we're in the tabs section
       const isTabsRoute = currentRoute === '(tabs)';
       
       // Handle detail page (fix for [id].tsx not redirecting)
       const isDetailPage = currentRoute === '[id]';
+
+      // Handle purchase screens
+      const isPurchaseScreen = currentRoute === 'PurchaseScreen';
 
       // Helper function to check if the current route is in the personalization flow
       const isPersonalizationRoute = personalizationRoutes.includes(currentRoute);
@@ -254,9 +362,10 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
       console.log('NavigationGuard - Is onboarded from context:', isOnboarded);
       console.log('NavigationGuard - Is new registration:', isNewRegistration);
       
-      // Important: Don't redirect on detail page when user is logged in
-      if (isDetailPage && user) {
-        console.log('NavigationGuard - Allowing access to detail page for logged in user');
+      // Important: Don't redirect on special routes when user is logged in
+      if ((isDetailPage || isPurchaseScreen || isAddFundsPath) && user) {
+        console.log('NavigationGuard - Allowing access to special route for logged in user:', currentRoute + (currentSubRoute ? '/' + currentSubRoute : ''));
+        // Explicitly prevent any navigation to tabs for special routes
         return;
       }
       
@@ -264,6 +373,29 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
         // User is authenticated - check onboarding status
         const isOnboardedFromStorage = await getOnboardingStatusFromStorage();
         console.log('NavigationGuard - Is onboarded from storage:', isOnboardedFromStorage);
+        
+        // HANDLING FOR NEW USERS (not onboarded yet)
+        // This needs to be checked first to prevent other conditions from interfering
+        if (isNewRegistration) {
+          console.log('NavigationGuard - User is newly registered');
+          
+          // If they're already in a personalization route, let them stay there
+          if (isPersonalizationRoute) {
+            console.log('NavigationGuard - Newly registered user already in personalization flow');
+            return;
+          }
+          
+          // Redirect to onboarding-select unless they're already there
+          if (currentRoute !== 'onboarding-select') {
+            console.log('NavigationGuard - Newly registered user, redirecting to onboarding selection');
+            
+            // Set a navigation lock timestamp before navigating
+            await AsyncStorage.setItem('last_navigation_timestamp', Date.now().toString());
+            
+            navigateSafely('/onboarding-select');
+          }
+          return;
+        }
         
         // HANDLING FOR RETURNING USERS (already onboarded)
         if (isOnboardedFromStorage) {
@@ -281,29 +413,17 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
             navigateSafely('/(tabs)');
             return;
           }
-        } 
-        // HANDLING FOR NEW USERS (not onboarded yet)
-        else {
-          // If this is a newly registered user, they should go to onboarding-select
-          if (isNewRegistration && !isPersonalizationRoute && currentRoute !== 'onboarding-select') {
-            console.log('NavigationGuard - Newly registered user, redirecting to onboarding selection');
-            navigateSafely('/onboarding-select');
+        } else {
+          // Skip additional navigation checks for special routes (for users who aren't onboarded)
+          if (isDetailPage || isPurchaseScreen || isAddFundsPath) {
+            console.log('NavigationGuard - Not onboarded but on special route, skipping redirect');
             return;
           }
           
-          // User is authenticated but NOT onboarded (and not a new registration)
-          // User is trying to access main app without onboarding
-          if (isTabsRoute && !directedToOnboarding) {
-            console.log('NavigationGuard - User not onboarded, redirecting to onboarding selection');
-            setDirectedToOnboarding(true);
-            navigateSafely('/onboarding-select');
-            return;
-          }
-          
-          // Handle login screen for authenticated but not onboarded users
+          // Handle login screen for authenticated users - always go to tabs if not a new registration
           if (currentRoute === 'login') {
-            console.log('NavigationGuard - Authenticated but not onboarded user on login screen');
-            navigateSafely('/onboarding-select');
+            console.log('NavigationGuard - Authenticated user on login screen, redirecting to tabs');
+            navigateSafely('/(tabs)');
             return;
           }
         }

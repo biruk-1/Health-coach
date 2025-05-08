@@ -117,23 +117,12 @@ export default function LoginScreen() {
         
         isRedirecting.current = true;
         
-        // For an existing user who's logging in, ensure they're marked as onboarded
-        try {
-          // Mark user as onboarded in AsyncStorage
-          await AsyncStorage.setItem('onboarded', 'true');
-          
-          // Clear any new registration flag that might exist
-          await AsyncStorage.removeItem('registration_status');
-          
-          console.log('Returning user marked as onboarded');
-          
-          // Directly navigate to main app with no delay
-          router.replace('/(tabs)');
-        } catch (error) {
-          console.error('Error marking user as onboarded:', error);
-          // Still try to navigate even if setting storage failed
-          router.replace('/(tabs)');
-        }
+        // Skip onboarding check - always redirect to tabs after login
+        // Clear any new registration flag that might exist
+        await AsyncStorage.removeItem('registration_status');
+        
+        // Directly navigate to main app with no delay
+        router.replace('/(tabs)');
       } else {
         setError('Invalid credentials. Please check your email and password.');
       }

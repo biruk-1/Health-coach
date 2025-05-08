@@ -82,7 +82,7 @@ export default function PurchaseScreen({ screenTitle, iconName, onCloseRoute, su
   };
 
   const handleClose = () => {
-    router.push(onCloseRoute);
+    router.replace(onCloseRoute);
   };
 
   const handleRetry = async () => {

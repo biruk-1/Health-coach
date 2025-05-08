@@ -1,4 +1,4 @@
-rootProject.name = 'HealthCoach'
+rootProject.name = 'Health Coach'
 
 dependencyResolutionManagement {
   versionCatalogs {

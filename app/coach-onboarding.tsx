@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function CoachOnboardingScreen() {
   const router = useRouter();
@@ -166,8 +167,20 @@ export default function CoachOnboardingScreen() {
         // In a real app, you'd save this data to the user's profile via an API call
         console.log('Saving coach profile data:', coachProfileData);
         
+        // Clear any registration status flag (including timestamp format)
+        const keys = await AsyncStorage.getAllKeys();
+        const registrationKey = keys.find(key => key === 'registration_status');
+        if (registrationKey) {
+          await AsyncStorage.removeItem(registrationKey);
+        }
+        
+        // Set onboarded flag explicitly to true
+        await AsyncStorage.setItem('onboarded', 'true');
+        
         // Save user type and mark onboarding as complete
         await completeOnboarding('coach');
+        
+        console.log('Coach onboarding completed');
         
         // Show verification pending message
         Alert.alert(
@@ -176,7 +189,13 @@ export default function CoachOnboardingScreen() {
           [
             {
               text: 'OK',
-              onPress: () => router.replace('/(tabs)')
+              onPress: () => {
+                // Short delay to ensure storage operations complete
+                setTimeout(() => {
+                  // Navigate to the main app
+                  router.replace('/(tabs)');
+                }, 300);
+              }
             }
           ]
         );

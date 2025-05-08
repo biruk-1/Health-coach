@@ -274,37 +274,31 @@ export default function OnboardingScreen() {
           // The user needs to go through onboarding-select to choose whether
           // they're a coach or a user, then complete that specific onboarding
           
-          console.log('Registration successful! Redirecting to onboarding selection');
+          console.log('Registration successful! Setting up navigation...');
           
           // Force clear onboarding status to make sure they go through the selection process
           await AsyncStorage.removeItem('onboarded');
           await AsyncStorage.removeItem('userType');
           
-          // Set a flag to indicate this is a new registration and store it BEFORE navigation
-          await AsyncStorage.setItem('registration_status', 'new');
+          // Create a strong navigation lock that prevents ANY redirects
+          const lockTimestamp = Date.now();
+          await AsyncStorage.setItem('registration_status', `new_${lockTimestamp}`);
+          await AsyncStorage.setItem('navigation_lock', `strict_${lockTimestamp}`);
+          await AsyncStorage.setItem('last_navigation_timestamp', lockTimestamp.toString());
           
           // Set navigation flag to prevent multiple redirects
           setIsNavigating(true);
           
-          // Prevent any more attempts to redirect after first one
-          const navigateOnce = (destination: string) => {
-            if (!router || !router.replace) {
-              console.error('Navigation error: router not available');
-              return;
-            }
-            
+          // Add a short delay before navigation to ensure AsyncStorage updates are processed
+          setTimeout(async () => {
             try {
-              console.log('Navigating to:', destination);
-              // Use hardcoded string path to avoid issues with object serialization
-              router.replace(destination);
+              console.log('Navigating to onboarding-select with strict navigation lock');
+              // Use replace to clear navigation history and prevent back navigation issues
+              router.replace('/onboarding-select');
             } catch (error) {
               console.error('Navigation error:', error);
             }
-          };
-          
-          // Directly navigate to onboarding-select - NO RETRIES OR FALLBACKS
-          // This helps prevent multiple navigation attempts
-          navigateOnce('/onboarding-select');
+          }, 500);
         } else {
           handleRegistrationError(registerResult.error);
         }
@@ -391,16 +385,11 @@ export default function OnboardingScreen() {
   useEffect(() => {
     // Only check auth on initial load, not after successful registration
     const checkAuthAndRedirect = async () => {
-      if (auth?.session && !loading) {
-        try {
-          // Only redirect if we're not in the middle of registration
-          if (!form.email && !form.fullName) {
-            await router.replace('/(tabs)');
-          }
-        } catch (error) {
-          console.error('Navigation error:', error);
-        }
-      }
+      // Remove the auto-redirect to tabs after authentication
+      // This was causing the unwanted redirect after registration
+      
+      // Only redirect in very specific cases that we control explicitly
+      // through the registration process itself
     };
 
     checkAuthAndRedirect();

@@ -19,6 +19,7 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function UserOnboardingScreen() {
   const router = useRouter();
@@ -134,11 +135,26 @@ export default function UserOnboardingScreen() {
         // In a real app, you'd save this data to the user's profile via an API call
         console.log('Saving user preferences:', onboardingData);
         
+        // Clear any registration status flag (including timestamp format)
+        const keys = await AsyncStorage.getAllKeys();
+        const registrationKey = keys.find(key => key === 'registration_status');
+        if (registrationKey) {
+          await AsyncStorage.removeItem(registrationKey);
+        }
+        
+        // Set onboarded flag explicitly to true
+        await AsyncStorage.setItem('onboarded', 'true');
+        
         // Save user type and mark onboarding as complete
         await completeOnboarding('user');
         
-        // Navigate to the main app
-        router.replace('/(tabs)');
+        console.log('User onboarding completed, redirecting to tabs');
+        
+        // Short delay to ensure storage operations complete
+        setTimeout(() => {
+          // Navigate to the main app
+          router.replace('/(tabs)');
+        }, 500);
       } catch (error) {
         console.error('Error completing onboarding:', error);
         Alert.alert('Error', 'An unexpected error occurred');

@@ -848,7 +848,7 @@ export const fallbackCoaches: HealthCoach[] = [
     is_verified: true,
     is_online: false
   }
-];
+]; 
 
 /**
  * Get a health coach by ID - this is the function used by [id].tsx

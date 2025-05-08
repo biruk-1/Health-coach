@@ -83,17 +83,42 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     
     // Handle navigation based on authentication and onboarding status
     if (user) {
-      // User is authenticated
-      if (isOnboarded && isPersonalizationRoute) {
-        // If already onboarded, redirect to main app instead of personalization screens
-        console.log('User is authenticated and onboarded, redirecting to tabs');
-        router.replace('/(tabs)');
-      } else if (!isOnboarded && !isPersonalizationRoute && 
-                !isSpecialRoute && !shouldNotRedirect && !isPublicRoute) {
-        // If authenticated but not onboarded, and not already in personalization flow
-        console.log('User is authenticated but not onboarded, redirecting to personalization');
-        router.replace('/onboarding-select');
-      }
+      // Check if this is a newly registered user or if there's a navigation lock
+      const checkNavigation = async () => {
+        // Check for navigation lock first
+        try {
+          const lastNavigationTime = await AsyncStorage.getItem('last_navigation_timestamp');
+          if (lastNavigationTime) {
+            const timeSinceLastNavigation = Date.now() - parseInt(lastNavigationTime);
+            // If navigation happened within the last 3 seconds, skip any redirect
+            if (timeSinceLastNavigation < 3000) {
+              console.log('OnboardingContext - Recent navigation detected, respecting navigation lock');
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Error checking navigation lock:', error);
+        }
+        
+        // Check for newly registered user
+        const registrationStatus = await AsyncStorage.getItem('registration_status');
+        const isNewlyRegistered = registrationStatus && registrationStatus.startsWith('new_');
+        
+        // For newly registered users, never redirect from onboarding-select
+        if (isNewlyRegistered && currentRoute === 'onboarding-select') {
+          console.log('OnboardingContext - Newly registered user on onboarding-select, keeping them there');
+          return;
+        }
+        
+        // Only redirect if not a newly registered user and not respecting a navigation lock
+        if (isOnboarded && isPersonalizationRoute && !isNewlyRegistered) {
+          // If already onboarded, redirect to main app instead of personalization screens
+          console.log('OnboardingContext - User is authenticated and onboarded, redirecting to tabs');
+          router.replace('/(tabs)');
+        }
+      };
+      
+      checkNavigation();
     }
   }, [isOnboarded, user, authLoading, segments, router]);
 
