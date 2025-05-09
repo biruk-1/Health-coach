@@ -323,7 +323,8 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
         'psychic-onboarding',
         'verify-coach',
         'settings/add-funds',
-        'PurchaseScreen'
+        'PurchaseScreen',
+        '[id]' // Explicitly mark the detail page as a special route
       ];
       
       // Get the current path from segments
@@ -339,6 +340,8 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
       
       // Handle detail page (fix for [id].tsx not redirecting)
       const isDetailPage = currentRoute === '[id]';
+      
+      console.log('NavigationGuard - Checking route:', currentRoute, isDetailPage ? '(Detail Page)' : '');
 
       // Handle purchase screens
       const isPurchaseScreen = currentRoute === 'PurchaseScreen';
@@ -361,6 +364,12 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
       console.log('NavigationGuard - User:', user ? 'Logged in' : 'Not logged in');
       console.log('NavigationGuard - Is onboarded from context:', isOnboarded);
       console.log('NavigationGuard - Is new registration:', isNewRegistration);
+      
+      // *** Critical fix: Never redirect away from the detail page when user is logged in ***
+      if (isDetailPage && user) {
+        console.log('NavigationGuard - Detail page detected with logged in user - PROTECTING ROUTE');
+        return;
+      }
       
       // Important: Don't redirect on special routes when user is logged in
       if ((isDetailPage || isPurchaseScreen || isAddFundsPath) && user) {
@@ -399,6 +408,12 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
         
         // HANDLING FOR RETURNING USERS (already onboarded)
         if (isOnboardedFromStorage) {
+          // Never redirect away from detail pages
+          if (isDetailPage) {
+            console.log('NavigationGuard - Protected detail page access for logged in user');
+            return;
+          }
+          
           // User is authenticated and onboarded
           if (isPersonalizationRoute) {
             // User is already onboarded but trying to access onboarding screens

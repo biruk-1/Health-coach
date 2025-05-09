@@ -112,10 +112,10 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         
         // Only redirect if not a newly registered user and not respecting a navigation lock
         if (isOnboarded && isPersonalizationRoute && !isNewlyRegistered) {
-          // If already onboarded, redirect to main app instead of personalization screens
+        // If already onboarded, redirect to main app instead of personalization screens
           console.log('OnboardingContext - User is authenticated and onboarded, redirecting to tabs');
-          router.replace('/(tabs)');
-        }
+        router.replace('/(tabs)');
+      }
       };
       
       checkNavigation();

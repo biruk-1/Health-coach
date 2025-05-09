@@ -152,8 +152,8 @@ export default function UserOnboardingScreen() {
         
         // Short delay to ensure storage operations complete
         setTimeout(() => {
-          // Navigate to the main app
-          router.replace('/(tabs)');
+        // Navigate to the main app
+        router.replace('/(tabs)');
         }, 500);
       } catch (error) {
         console.error('Error completing onboarding:', error);

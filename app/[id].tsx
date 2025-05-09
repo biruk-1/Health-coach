@@ -25,29 +25,55 @@ export default function CoachDetailScreen() {
     // This prevents the component from redirecting itself
     
     async function loadCoachDetails() {
-    try {
-      setLoading(true);
-      setError(null);
+      try {
+        setLoading(true);
+        setError(null);
         console.log('Loading coach details for ID:', id);
         
         if (!id) {
           throw new Error('No coach ID provided');
         }
 
-        const coachData = await getHealthCoachById(id);
+        // Make sure we have a clean string ID
+        const coachIdString = id.toString().trim();
+        console.log('Fetching coach with cleaned ID:', coachIdString);
         
-        if (!coachData) {
-          throw new Error('Coach not found');
+        // Try to fetch the coach with 2 attempts
+        let coachData = null;
+        let attempts = 0;
+        
+        while (!coachData && attempts < 2) {
+          attempts++;
+          console.log(`Attempt ${attempts} to fetch coach with ID: ${coachIdString}`);
+          
+          coachData = await getHealthCoachById(coachIdString);
+          
+          if (!coachData && attempts < 2) {
+            console.log('Coach not found on first attempt, waiting before retry...');
+            // Small delay before retry
+            await new Promise(resolve => setTimeout(resolve, 500)); 
+          }
         }
         
-        console.log('Coach data loaded:', coachData.name);
+        if (!coachData) {
+          console.error('Coach not found after multiple attempts for ID:', coachIdString);
+          throw new Error('Coach not found. The coach may have been removed or is temporarily unavailable.');
+        }
+        
+        console.log('Coach data loaded successfully:', coachData.name);
         setCoach(coachData);
       } catch (err) {
         console.error('Error loading coach:', err);
-        setError(err.message || 'Failed to load coach details');
-    } finally {
-      setLoading(false);
-    }
+        const errorMessage = err.message || 'Failed to load coach details';
+        setError(errorMessage);
+        
+        // Log more details about the error for debugging
+        if (err.response) {
+          console.error('API Error Response:', err.response);
+        }
+      } finally {
+        setLoading(false);
+      }
     }
 
     loadCoachDetails();
@@ -168,7 +194,13 @@ export default function CoachDetailScreen() {
                 <Text style={styles.specialty}>{coach.specialty}</Text>
                 <View style={styles.ratingContainer}>
                   <Ionicons name="star" size={16} color="#fbbf24" />
-              <Text style={styles.rating}>{(Number(coach.rating) || 5.0).toFixed(1)}</Text>
+                  <Text style={styles.rating}>
+                    {typeof coach.rating === 'number' 
+                      ? coach.rating.toFixed(1) 
+                      : typeof coach.rating === 'string' 
+                        ? parseFloat(coach.rating).toFixed(1) 
+                        : '5.0'}
+                  </Text>
                   <Text style={styles.reviews}>({coach.reviews_count || 0} reviews)</Text>
             </View>
           </View>
@@ -177,7 +209,7 @@ export default function CoachDetailScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <Text style={styles.bio}>
-            {coach.bio || `${coach.name} is a professional health coach specializing in ${coach.specialty.toLowerCase()}. They are dedicated to helping clients achieve their health and wellness goals through personalized guidance and support.`}
+            {coach.bio || `${coach.name} is a professional health coach specializing in ${coach.specialty?.toLowerCase() || 'health and wellness'}. They are dedicated to helping clients achieve their health and wellness goals through personalized guidance and support.`}
           </Text>
         </View>
 
@@ -189,7 +221,7 @@ export default function CoachDetailScreen() {
                 <Text style={styles.tagText}>{tag}</Text>
             </View>
             )) || 
-            ['Health', 'Wellness', coach.specialty].map((tag, index) => (
+            ['Health', 'Wellness', coach.specialty].filter(Boolean).map((tag, index) => (
               <View key={index} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
             </View>

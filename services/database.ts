@@ -856,7 +856,34 @@ export const fallbackCoaches: HealthCoach[] = [
 export const getHealthCoachById = async (id: string): Promise<HealthCoach | null> => {
   try {
     console.log('Getting health coach by ID:', id);
-    return await getCoachById(id);
+    
+    if (!id) {
+      console.error('Invalid coach ID - empty or undefined');
+      return null;
+    }
+    
+    // Clean up the ID
+    const cleanId = id.toString().trim();
+    
+    // Try using the Digital Ocean API first
+    try {
+      console.log('Attempting to fetch coach from Digital Ocean API with ID:', cleanId);
+      const coach = await getCoachById(cleanId);
+      
+      if (coach) {
+        console.log('Successfully fetched coach from Digital Ocean:', coach.name);
+        return coach;
+      } else {
+        console.log('Coach not found in Digital Ocean API, trying fallback');
+      }
+    } catch (apiError) {
+      console.error('Digital Ocean API error:', apiError);
+      console.log('Falling back to local coach lookup');
+    }
+    
+    // If Digital Ocean fails, try the fallback
+    console.log('Using fallback method to find coach with ID:', cleanId);
+    return await fallbackGetCoachById(cleanId);
   } catch (error) {
     console.error('Error in getHealthCoachById:', error);
     return null;

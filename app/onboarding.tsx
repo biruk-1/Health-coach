@@ -287,14 +287,14 @@ export default function OnboardingScreen() {
           await AsyncStorage.setItem('last_navigation_timestamp', lockTimestamp.toString());
           
           // Set navigation flag to prevent multiple redirects
-          setIsNavigating(true);
+            setIsNavigating(true);
           
           // Add a short delay before navigation to ensure AsyncStorage updates are processed
           setTimeout(async () => {
             try {
               console.log('Navigating to onboarding-select with strict navigation lock');
               // Use replace to clear navigation history and prevent back navigation issues
-              router.replace('/onboarding-select');
+            router.replace('/onboarding-select');
             } catch (error) {
               console.error('Navigation error:', error);
             }
