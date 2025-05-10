@@ -1,10 +1,11 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, SafeAreaView, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from './../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type SettingItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -62,16 +63,27 @@ export default function SettingsScreen() {
   ];
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}
+    <View style={styles.container}>
+      <StatusBar backgroundColor="#4f46e5" barStyle="light-content" />
+      <LinearGradient 
+        colors={['#4f46e5', '#6366f1']} 
+        start={{ x: 0, y: 0 }} 
+        end={{ x: 1, y: 0 }}
+        style={styles.headerBackground}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Settings</Text>
-          <Text style={styles.subtitle}>Customize your experience</Text>
+        <SafeAreaView style={styles.safeAreaTop}>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Settings</Text>
+            <Text style={styles.headerSubtitle}>Customize your experience</Text>
         </View>
+        </SafeAreaView>
+      </LinearGradient>
 
+      <SafeAreaView style={styles.safeAreaBottom}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.contentContainer}
+        >
         <View style={styles.balanceCard}>
           <View style={styles.balanceHeader}>
             <Ionicons name="wallet-outline" size={24} color="#6366f1" />
@@ -116,55 +128,53 @@ export default function SettingsScreen() {
         <Text style={styles.version}>Version 1.0.0</Text>
       </ScrollView>
     </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
   },
+  headerBackground: {
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  safeAreaTop: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  safeAreaBottom: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  headerContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 8,
+      },
+  headerTitle: {
+    fontSize: isSmallScreen ? 22 : isLargeScreen ? 28 : 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.1)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  headerSubtitle: {
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 16 : 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  scrollView: {
+    flex: 1,
+  },
   contentContainer: {
-    paddingTop: Platform.OS === 'ios' ? 20 : 16,
+    paddingTop: 16,
     paddingBottom: Platform.OS === 'ios' ? 32 : 24,
     paddingHorizontal: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
-  },
-  header: {
-    backgroundColor: '#f1f5f9',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingTop: Platform.OS === 'ios' ? 16 : 12,
-    paddingBottom: Platform.OS === 'ios' ? 12 : 8,
-    paddingHorizontal: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  title: {
-    fontSize: isSmallScreen ? 18 : isLargeScreen ? 22 : 20,
-    fontWeight: '900',
-    color: '#1e293b',
-    marginBottom: 4,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
-    fontWeight: '500',
-    color: '#64748b',
-    textAlign: 'center',
   },
   balanceCard: {
     backgroundColor: '#ffffff',

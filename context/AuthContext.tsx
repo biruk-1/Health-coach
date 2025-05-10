@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { useSupabase } from './SupabaseContext';
 import { trackEvent, identifyUser, resetUser } from '../lib/posthog';
@@ -31,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const sessionRecoveryAttempted = useRef(false);
 
   const updateUserState = (supabaseUser: SupabaseUser | null) => {
     if (!supabaseUser) {
@@ -43,16 +44,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: supabaseUser.email,
       role: supabaseUser.user_metadata?.role || 'user',
       fullName: supabaseUser.user_metadata?.full_name,
-      birthDate: supabaseUser.user_metadata?.birth_date
+      birthDate: supabaseUser.user_metadata?.birth_date,
+      // Include all other relevant user metadata fields here
     };
     setUser(userData);
     return userData;
   };
 
+  // Attempt to recover a session when initial load fails
+  const recoverSession = async () => {
+    if (sessionRecoveryAttempted.current) return false;
+    
+    try {
+      console.log('Attempting to recover session...');
+      sessionRecoveryAttempted.current = true;
+      
+      // Force refresh the session
+      const { data, error } = await supabase.auth.refreshSession();
+      
+      if (error || !data.session) {
+        console.error('Session recovery failed:', error?.message || 'No session returned');
+        return false;
+      }
+      
+      // Update our state with the recovered session
+      setSession(data.session);
+      const userData = updateUserState(data.session.user);
+      
+      if (userData) {
+        await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+          session: data.session,
+          user: userData
+        }));
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error recovering session:', error);
+      return false;
+    }
+  };
+
   useEffect(() => {
-    loadPersistedSession();
+    let mounted = true;
+    
+    const initialize = async () => {
+      try {
+        await loadPersistedSession();
+        
+        // If we still don't have a session, try to recover it
+        if (mounted && !session && !user) {
+          const recovered = await recoverSession();
+          if (!recovered && mounted) {
+            // Final loading state update if recovery failed
+            setLoading(false);
+          }
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    initialize();
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (!mounted) return;
+      
       console.log('Auth state changed:', event, 'Session:', !!currentSession);
       if (currentSession) {
         setSession(currentSession);
@@ -71,6 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -80,11 +142,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const storedData = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
       if (storedData) {
         const { session: storedSession, user: storedUser } = JSON.parse(storedData);
-        setSession(storedSession);
-        setUser(storedUser);
+        // Make sure the stored session is valid
+        if (storedSession && storedSession.access_token) {
+          setSession(storedSession);
+          setUser(storedUser);
+        } else {
+          console.log('Stored session is invalid, clearing local storage');
+          await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+        }
       }
     } catch (error) {
       console.error('Error loading persisted session:', error);
+      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
     } finally {
       setLoading(false);
     }

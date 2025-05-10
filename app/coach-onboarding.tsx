@@ -30,6 +30,7 @@ export default function CoachOnboardingScreen() {
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const insets = useSafeAreaInsets();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Step 1: Personal Info & Bio
   const [fullName, setFullName] = useState('');
@@ -73,6 +74,7 @@ export default function CoachOnboardingScreen() {
     
     if (currentStep > 1) {
       setCurrentStep(prev => prev - 1);
+      setErrorMessage(null);
     } else {
       router.back();
     }
@@ -114,28 +116,108 @@ export default function CoachOnboardingScreen() {
   const handleNext = async () => {
     if (loading) return;
 
-    if (currentStep < 7) {
+    if (currentStep < 12) {
       // Validate current step
       let canProceed = true;
       
-      // Validation logic for each step
+      // Simplified validation for each step
       switch (currentStep) {
         case 1:
-          canProceed = !!fullName && !!location && !!bio;
+          if (!fullName.trim()) {
+            setErrorMessage("Please enter your full name");
+            canProceed = false;
+          } else if (!location.trim()) {
+            setErrorMessage("Please enter your location");
+            canProceed = false;
+          }
           break;
         case 2:
-          canProceed = isCertified !== null && !!experience;
+          if (!bio.trim()) {
+            setErrorMessage("Please enter your bio");
+            canProceed = false;
+          }
           break;
-        // Add other validations as needed
+        case 3:
+          // Profile photo is optional, but encourage it
+          if (!profilePhoto) {
+            setErrorMessage("A profile photo is highly recommended");
+            // Allow proceeding anyway
+          }
+          break;
+        case 4:
+          if (isCertified === null) {
+            setErrorMessage("Please indicate if you're certified");
+            canProceed = false;
+          } else if (isCertified && certifications.length === 0) {
+            setErrorMessage("Please add your certifications");
+            canProceed = false;
+          }
+          break;
+        case 5:
+          if (!experience) {
+            setErrorMessage("Please select your experience level");
+            canProceed = false;
+          }
+          break;
+        case 6:
+          if (coachingSpecialties.length === 0) {
+            setErrorMessage("Please select at least one specialty");
+            canProceed = false;
+          }
+          break;
+        case 7:
+          if (targetAudience.length === 0) {
+            setErrorMessage("Please select your target audience");
+            canProceed = false;
+          }
+          break;
+        case 8:
+          if (coachingStyle.length === 0) {
+            setErrorMessage("Please select your coaching style");
+            canProceed = false;
+          }
+          break;
+        case 9:
+          if (preferredFormat.length === 0) {
+            setErrorMessage("Please select your preferred format");
+            canProceed = false;
+          }
+          break;
+        case 10:
+          if (clientCapacity === null) {
+            setErrorMessage("Please select your client capacity");
+            canProceed = false;
+          } else if (availability.length === 0) {
+            setErrorMessage("Please select your availability");
+            canProceed = false;
+          }
+          break;
+        case 11:
+          if (!rate.trim()) {
+            setErrorMessage("Please enter your rate");
+            canProceed = false;
+          } else if (rateType === null) {
+            setErrorMessage("Please select your rate type");
+            canProceed = false;
+          }
+          break;
+        case 12:
+          if (aiHandsOn === null) {
+            setErrorMessage("Please select your AI integration preference");
+            canProceed = false;
+          }
+          break;
       }
       
       if (canProceed) {
         setCurrentStep(prev => prev + 1);
+        setErrorMessage(null);
       }
     } else {
       // Submit onboarding data
       try {
         setLoading(true);
+        setErrorMessage(null);
         
         // Save coach profile data
         const coachProfileData = {
@@ -201,6 +283,7 @@ export default function CoachOnboardingScreen() {
         );
       } catch (error) {
         console.error('Error completing coach onboarding:', error);
+        setErrorMessage("An unexpected error occurred. Please try again.");
         Alert.alert('Error', 'An unexpected error occurred');
       } finally {
         setLoading(false);
@@ -210,13 +293,18 @@ export default function CoachOnboardingScreen() {
 
   const renderStepTitle = () => {
     switch (currentStep) {
-      case 1: return "Personal Info & Bio";
-      case 2: return "Credentials & Experience";
-      case 3: return "Your Coaching Focus";
-      case 4: return "Coaching Style";
-      case 5: return "Availability";
-      case 6: return "Pricing & Offers";
-      case 7: return "AI Integration Preferences";
+      case 1: return "Your Name & Location";
+      case 2: return "About You";
+      case 3: return "Professional Photo";
+      case 4: return "Credentials";
+      case 5: return "Your Experience";
+      case 6: return "Coaching Specialties";
+      case 7: return "Target Audience";
+      case 8: return "Coaching Style";
+      case 9: return "Session Format";
+      case 10: return "Availability";
+      case 11: return "Pricing";
+      case 12: return "AI Integration";
       default: return "";
     }
   };
@@ -229,151 +317,157 @@ export default function CoachOnboardingScreen() {
             <Text style={styles.question}>What's your full name?</Text>
             <TextInput
               style={styles.textInput}
-              placeholder="John Doe"
+              placeholder="Enter your full name"
               value={fullName}
               onChangeText={setFullName}
+              autoFocus
             />
             
-            <Text style={[styles.question, { marginTop: 20 }]}>What's your gender? (Optional)</Text>
+            <Text style={[styles.question, { marginTop: 24 }]}>Where are you located?</Text>
             <TextInput
               style={styles.textInput}
-              placeholder="Optional"
-              value={gender}
-              onChangeText={setGender}
-            />
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>What city & state are you based in?</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="New York, NY"
+              placeholder="City, State (e.g., New York, NY)"
               value={location}
               onChangeText={setLocation}
             />
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>Upload a profile photo</Text>
-            <TouchableOpacity 
-              style={styles.imageUpload}
-              onPress={() => pickImage(setProfilePhoto)}
-            >
-              {profilePhoto ? (
-                <Image source={{ uri: profilePhoto }} style={styles.previewImage} />
-              ) : (
-                <View style={styles.uploadPlaceholder}>
-                  <Ionicons name="camera-outline" size={24} color="#666" />
-                  <Text style={styles.uploadText}>Tap to select a photo</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>Write a short bio (150-300 characters)</Text>
-            <Text style={styles.subtext}>Share who you are, who you help, and your coaching style.</Text>
-            <TextInput
-              style={[styles.textInput, { height: 100 }]}
-              placeholder="I'm a certified health coach specializing in weight management and nutrition..."
-              value={bio}
-              onChangeText={setBio}
-              multiline
-              maxLength={300}
-            />
-            <Text style={styles.charCount}>{bio.length}/300</Text>
           </View>
         );
       
       case 2:
         return (
           <View style={styles.stepContent}>
+            <Text style={styles.question}>Tell us about yourself</Text>
+            <Text style={styles.instructions}>Briefly describe your approach to coaching and experience</Text>
+            <TextInput
+              style={styles.textAreaInput}
+              placeholder="I'm a health coach specializing in..."
+              value={bio}
+              onChangeText={setBio}
+              multiline
+              numberOfLines={6}
+              textAlignVertical="top"
+            />
+          </View>
+        );
+        
+      case 3:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.question}>Add a professional photo</Text>
+            <Text style={styles.instructions}>A professional photo helps build trust with clients</Text>
+            
+            <View style={styles.photoContainer}>
+              {profilePhoto ? (
+                <View style={styles.profilePhotoWrapper}>
+                  <Image source={{ uri: profilePhoto }} style={styles.profilePhoto} />
+                  <TouchableOpacity 
+                    style={styles.changePhotoButton} 
+                    onPress={() => pickImage(setProfilePhoto)}
+                  >
+                    <Ionicons name="camera" size={18} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.addPhotoButton} 
+                  onPress={() => pickImage(setProfilePhoto)}
+                >
+                  <Ionicons name="add-circle" size={36} color="#6366F1" />
+                  <Text style={styles.addPhotoText}>Upload Photo</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        );
+        
+      case 4:
+        return (
+          <View style={styles.stepContent}>
             <Text style={styles.question}>Are you a certified health coach?</Text>
             
-            <View style={styles.rowOptions}>
+            <View style={styles.optionButtons}>
               <TouchableOpacity 
-                style={[styles.rowOption, isCertified === true && styles.selectedOption]} 
+                style={[
+                  styles.optionButton, 
+                  isCertified === true && styles.selectedOptionButton,
+                  { marginRight: 8 }
+                ]} 
                 onPress={() => setIsCertified(true)}
               >
-                <Text style={styles.optionText}>Yes</Text>
+                <Text style={[
+                  styles.optionButtonText,
+                  isCertified === true && styles.selectedOptionButtonText
+                ]}>
+                  Yes
+                </Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={[styles.rowOption, isCertified === false && styles.selectedOption]} 
+                style={[
+                  styles.optionButton, 
+                  isCertified === false && styles.selectedOptionButton
+                ]} 
                 onPress={() => setIsCertified(false)}
               >
-                <Text style={styles.optionText}>No</Text>
+                <Text style={[
+                  styles.optionButtonText,
+                  isCertified === false && styles.selectedOptionButtonText
+                ]}>
+                  No
+                </Text>
               </TouchableOpacity>
             </View>
             
             {isCertified && (
-              <>
-                <Text style={[styles.question, { marginTop: 20 }]}>Select certifications</Text>
-                <Text style={styles.subtext}>Select all that apply</Text>
+              <View style={styles.certificationsSection}>
+                <Text style={[styles.question, { marginTop: 24 }]}>List your certifications</Text>
+                <TextInput
+                  style={styles.textAreaInput}
+                  placeholder="E.g., NASM CPT, ACE Health Coach, etc."
+                  value={certifications.join(', ')}
+                  onChangeText={text => setCertifications(text.split(',').map(item => item.trim()))}
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                />
                 
-                {[
-                  'NASM', 'ACE', 'Precision Nutrition', 'ACSM',
-                  'ISSA', 'NSCA', 'IIN', 'Other'
-                ].map(cert => (
-                  <TouchableOpacity 
-                    key={cert}
-                    style={[styles.option, certifications.includes(cert) && styles.selectedOption]} 
-                    onPress={() => toggleArrayItem(certifications, setCertifications, cert)}
-                  >
-                    <Text style={styles.optionText}>{cert}</Text>
-                  </TouchableOpacity>
-                ))}
-                
-                <Text style={[styles.question, { marginTop: 20 }]}>Upload or verify your certification</Text>
                 <TouchableOpacity 
-                  style={styles.imageUpload}
+                  style={styles.uploadButton}
                   onPress={() => pickImage(setCertificationProof)}
                 >
-                  {certificationProof ? (
-                    <Image source={{ uri: certificationProof }} style={styles.previewImage} />
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Ionicons name="document-outline" size={24} color="#666" />
-                      <Text style={styles.uploadText}>Tap to upload a photo or PDF</Text>
-                    </View>
-                  )}
+                  <Ionicons name="document-attach" size={24} color="#6366F1" />
+                  <Text style={styles.uploadButtonText}>
+                    {certificationProof ? 'Change Certificate' : 'Upload Certificate'}
+                  </Text>
                 </TouchableOpacity>
-              </>
+              </View>
             )}
+          </View>
+        );
+        
+      case 5:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.question}>How many years of experience do you have?</Text>
             
-            <Text style={[styles.question, { marginTop: 20 }]}>How many years of coaching experience do you have?</Text>
-            
-            {[
-              '0-1 years', '2-4 years', '5-10 years', '10+ years'
-            ].map(exp => (
-              <TouchableOpacity 
-                key={exp}
-                style={[styles.option, experience === exp && styles.selectedOption]} 
-                onPress={() => setExperience(exp)}
-              >
-                <Text style={styles.optionText}>{exp}</Text>
-              </TouchableOpacity>
-            ))}
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>Do you have experience with any of the following?</Text>
-            <Text style={styles.subtext}>Select all that apply</Text>
-            
-            {[
-              'Nutrition coaching',
-              'Fitness coaching',
-              'Habit change / accountability',
-              'Mental health support',
-              'Medical conditions (e.g., diabetes, PCOS)',
-              'Postpartum coaching',
-              'Youth or family wellness',
-              'Other'
-            ].map(specialty => (
-              <TouchableOpacity 
-                key={specialty}
-                style={[styles.option, specialties.includes(specialty) && styles.selectedOption]} 
-                onPress={() => toggleArrayItem(specialties, setSpecialties, specialty)}
-              >
-                <Text style={styles.optionText}>{specialty}</Text>
-              </TouchableOpacity>
-            ))}
+            <View style={styles.experienceOptions}>
+              {['Less than 1 year', '1-3 years', '3-5 years', '5-10 years', '10+ years'].map(exp => (
+                <TouchableOpacity 
+                  key={exp}
+                  style={[styles.experienceOption, experience === exp && styles.selectedExperienceOption]} 
+                  onPress={() => setExperience(exp)}
+                >
+                  <View style={styles.experienceRadio}>
+                    {experience === exp && <View style={styles.experienceRadioSelected} />}
+                  </View>
+                  <Text style={styles.experienceText}>{exp}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         );
       
-      case 3:
+      case 6:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What are your specialties?</Text>
@@ -397,8 +491,13 @@ export default function CoachOnboardingScreen() {
                 <Text style={styles.optionText}>{specialty}</Text>
               </TouchableOpacity>
             ))}
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>Who do you work best with?</Text>
+          </View>
+        );
+      
+      case 7:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.question}>Who do you work best with?</Text>
             <Text style={styles.subtext}>Select all that apply</Text>
             
             {[
@@ -418,31 +517,10 @@ export default function CoachOnboardingScreen() {
                 <Text style={styles.optionText}>{audience}</Text>
               </TouchableOpacity>
             ))}
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>Upload client testimonials or before/after photos (with consent)</Text>
-            <Text style={styles.subtext}>Optional</Text>
-            
-            <TouchableOpacity 
-              style={styles.imageUpload}
-              onPress={pickMultipleImages}
-            >
-              <View style={styles.uploadPlaceholder}>
-                <Ionicons name="images-outline" size={24} color="#666" />
-                <Text style={styles.uploadText}>Tap to select photos</Text>
-              </View>
-            </TouchableOpacity>
-            
-            {testimonialPhotos.length > 0 && (
-              <View style={styles.photoGrid}>
-                {testimonialPhotos.map((photo, index) => (
-                  <Image key={index} source={{ uri: photo }} style={styles.gridImage} />
-                ))}
-              </View>
-            )}
           </View>
         );
       
-      case 4:
+      case 8:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>How would you describe your coaching style?</Text>
@@ -464,8 +542,13 @@ export default function CoachOnboardingScreen() {
                 <Text style={styles.optionText}>{style}</Text>
               </TouchableOpacity>
             ))}
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>What's your preferred coaching format?</Text>
+          </View>
+        );
+      
+      case 9:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.question}>What's your preferred coaching format?</Text>
             <Text style={styles.subtext}>Select all that apply</Text>
             
             {[
@@ -487,7 +570,7 @@ export default function CoachOnboardingScreen() {
           </View>
         );
       
-      case 5:
+      case 10:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>How many clients are you currently open to accepting?</Text>
@@ -521,7 +604,7 @@ export default function CoachOnboardingScreen() {
           </View>
         );
       
-      case 6:
+      case 11:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What is your typical coaching rate?</Text>
@@ -574,7 +657,7 @@ export default function CoachOnboardingScreen() {
           </View>
         );
       
-      case 7:
+      case 12:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>Would you like your AI assistant to help with:</Text>
@@ -627,8 +710,8 @@ export default function CoachOnboardingScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar style="dark" />
       
       <LinearGradient
         colors={['#5E72E4', '#7F90FF']}
@@ -636,47 +719,53 @@ export default function CoachOnboardingScreen() {
         end={{ x: 1, y: 1 }}
         style={styles.gradientHeader}
       >
-        <TouchableOpacity onPress={handleBack} style={styles.gradientBackButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.gradientHeaderTitle}>Create Coach Profile</Text>
+        <View style={styles.gradientHeaderContent}>
+          <TouchableOpacity onPress={handleBack} style={styles.gradientBackButton} disabled={loading}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.gradientHeaderTitle}>Create Coach Profile</Text>
+        </View>
       </LinearGradient>
       
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
+        style={styles.keyboardAvoidingView}
       >
-        <View style={styles.header}>
-          <View style={styles.progress}>
-            <View style={[styles.progressBar, { width: `${(currentStep / 7) * 100}%` }]} />
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBarContainer}>
+            <View style={[styles.progressBar, { width: `${(currentStep / 12) * 100}%` }]} />
           </View>
-          <Text style={styles.stepIndicator}>{currentStep}/7</Text>
+          <Text style={styles.stepCounter}>Step {currentStep}/12</Text>
         </View>
         
-        <Text style={styles.stepTitle}>{renderStepTitle()}</Text>
+        {errorMessage && (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={20} color="#EF4444" />
+            <Text style={styles.errorText}>{errorMessage}</Text>
+          </View>
+        )}
         
         <ScrollView 
-          contentContainerStyle={[
-            styles.scrollContent, 
-            { paddingBottom: Math.max(insets.bottom + 140, 180) }
-          ]} 
+          contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           bounces={true}
         >
+          <Text style={styles.stepTitle}>{renderStepTitle()}</Text>
+          
           {renderStepContent()}
         </ScrollView>
         
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 16, 24) }]}>
           <TouchableOpacity
-            style={styles.nextButton}
+            style={[styles.nextButton, loading && styles.disabledButton]}
             onPress={handleNext}
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#FFF" />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.nextButtonText}>
-                {currentStep < 7 ? 'Continue' : 'Complete'}
+                {currentStep === 12 ? 'Submit Profile' : 'Continue'}
               </Text>
             )}
           </TouchableOpacity>
@@ -692,18 +781,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   gradientHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    paddingHorizontal: 20,
-    height: Platform.OS === 'ios' ? 120 : 100,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingTop: Platform.OS === 'ios' ? 10 : 0,
+    height: Platform.OS === 'ios' ? 100 : 80,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
+  },
+  gradientHeaderContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
   },
   gradientBackButton: {
     width: 40,
@@ -717,145 +809,244 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
-    marginLeft: 12,
+    marginLeft: 16,
   },
-  header: {
+  progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
-  progress: {
+  progressBarContainer: {
     flex: 1,
     height: 6,
-    backgroundColor: '#eee',
+    backgroundColor: '#EDF2F7',
     borderRadius: 3,
-    marginRight: 10,
+    marginRight: 12,
   },
   progressBar: {
     height: 6,
     backgroundColor: '#5E72E4',
     borderRadius: 3,
   },
-  stepIndicator: {
+  stepCounter: {
     fontSize: 14,
-    color: '#666',
+    color: '#64748B',
     fontWeight: '500',
   },
   stepTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginVertical: 16,
-    paddingHorizontal: 16,
-  },
-  scrollView: {
-    flex: 1,
+    marginBottom: 24,
+    color: '#1E293B',
   },
   scrollContent: {
     flexGrow: 1,
-    paddingTop: 24,
     paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingBottom: 100,
   },
   stepContent: {
-    marginBottom: 20,
+    marginBottom: 32,
   },
   question: {
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 12,
+    marginBottom: 16,
+    color: '#334155',
   },
   subtext: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
+    color: '#64748B',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  instructions: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 16,
+    lineHeight: 20,
   },
   option: {
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#ddd',
-    marginBottom: 10,
-    backgroundColor: '#f9f9f9',
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
+    backgroundColor: '#F8FAFC',
   },
   selectedOption: {
     borderColor: '#5E72E4',
-    backgroundColor: '#EDF2FF',
+    backgroundColor: '#EEF2FF',
   },
   optionText: {
     fontSize: 16,
-  },
-  rowOptions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  rowOption: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginHorizontal: 5,
-    backgroundColor: '#f9f9f9',
-    alignItems: 'center',
+    color: '#334155',
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
-    minHeight: 48,
+    marginBottom: 24,
+    backgroundColor: '#FFFFFF',
   },
-  imageUpload: {
+  textAreaInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    height: 150,
-    marginBottom: 10,
-    overflow: 'hidden',
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    height: 120,
+    marginBottom: 24,
+    textAlignVertical: 'top',
+    backgroundColor: '#FFFFFF',
   },
-  uploadPlaceholder: {
-    flex: 1,
+  photoContainer: {
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  profilePhotoWrapper: {
+    position: 'relative',
+  },
+  profilePhoto: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 3,
+    borderColor: '#6366F1',
+  },
+  changePhotoButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#6366F1',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  uploadText: {
-    color: '#666',
-    marginTop: 8,
+  addPhotoButton: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
   },
-  previewImage: {
-    width: '100%',
-    height: '100%',
+  addPhotoText: {
+    color: '#6366F1',
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: '600',
   },
-  charCount: {
-    alignSelf: 'flex-end',
-    color: '#666',
-    fontSize: 12,
-  },
-  photoGrid: {
+  optionButtons: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 10,
+    marginTop: 12,
+    marginBottom: 24,
   },
-  gridImage: {
-    width: '30%',
-    aspectRatio: 1,
-    margin: '1.5%',
-    borderRadius: 4,
+  optionButton: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginHorizontal: 6,
+  },
+  selectedOptionButton: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  optionButtonText: {
+    fontSize: 16,
+    color: '#1E293B',
+    fontWeight: '500',
+  },
+  selectedOptionButtonText: {
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+  certificationsSection: {
+    marginTop: 24,
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#6366F1',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  uploadButtonText: {
+    color: '#6366F1',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 12,
+  },
+  experienceOptions: {
+    marginTop: 12,
+    marginBottom: 24,
+  },
+  experienceOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  selectedExperienceOption: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  experienceRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    marginRight: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  experienceRadioSelected: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#6366F1',
+  },
+  experienceText: {
+    fontSize: 16,
+    color: '#334155',
   },
   rateInputContainer: {
-    marginBottom: 10,
+    marginBottom: 24,
   },
   rateInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
-    marginBottom: 10,
+    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
   },
   rateTypeOptions: {
     flexDirection: 'row',
@@ -863,28 +1054,59 @@ const styles = StyleSheet.create({
   },
   rateTypeOption: {
     flex: 1,
-    padding: 12,
-    borderRadius: 8,
+    padding: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#ddd',
-    marginHorizontal: 5,
-    backgroundColor: '#f9f9f9',
+    borderColor: '#E2E8F0',
+    marginHorizontal: 6,
+    backgroundColor: '#F8FAFC',
     alignItems: 'center',
   },
   footer: {
-    padding: 16,
+    padding: 20,
+    paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: '#EDF2F7',
+    backgroundColor: '#FFFFFF',
   },
   nextButton: {
     backgroundColor: '#5E72E4',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   nextButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 14,
+    marginLeft: 12,
+    flex: 1,
+    lineHeight: 20,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  disabledButton: {
+    backgroundColor: '#A5B4FC',
   },
 }); 

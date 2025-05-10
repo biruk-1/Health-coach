@@ -1,7 +1,7 @@
 // app/cosmic-ai-subscription.tsx
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import PurchaseScreen from './PurchaseScreen';
 
@@ -19,14 +19,21 @@ const styles = StyleSheet.create({
 
 export default function CosmicAISubscriptionScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
 
   const handleBackPress = () => {
     try {
-      router.back();
+      // Check if we can go back in history
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        // Use a direct path instead of "/"
+        router.push('/(tabs)');
+      }
     } catch (error) {
       console.error('Navigation error:', error);
-      // Fallback to home if back navigation fails
-      router.push('/');
+      // More specific fallback
+      router.push('/(tabs)');
     }
   };
 
@@ -42,7 +49,7 @@ export default function CosmicAISubscriptionScreen() {
       <PurchaseScreen 
         screenTitle="Unlock Cosmic AI" 
         iconName="sparkles" 
-        onCloseRoute="/" 
+        onCloseRoute="/(tabs)" 
         successRoute="/cosmic-ai-chat" 
         successMessage="Successfully purchased" 
       />

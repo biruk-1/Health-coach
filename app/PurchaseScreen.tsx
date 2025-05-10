@@ -47,7 +47,7 @@ export default function PurchaseScreen({ screenTitle, iconName, onCloseRoute, su
       await purchaseCredits(plan.sku);
       await refreshBalance();
 
-      router.replace(successRoute);
+      router.push(successRoute);
       Alert.alert('Success', `${successMessage} ${plan.credits} credits!`);
     } catch (error: any) {
       console.error('Purchase error:', error);
@@ -82,7 +82,11 @@ export default function PurchaseScreen({ screenTitle, iconName, onCloseRoute, su
   };
 
   const handleClose = () => {
-    router.replace(onCloseRoute);
+    if (onCloseRoute.includes('(tabs)')) {
+      router.replace(onCloseRoute);
+    } else {
+      router.push(onCloseRoute);
+    }
   };
 
   const handleRetry = async () => {
@@ -92,7 +96,7 @@ export default function PurchaseScreen({ screenTitle, iconName, onCloseRoute, su
       await retryInitialization();
       if (!initializationError && availableProducts.length > 0) {
         Alert.alert('Success', 'Initialization retry successful. Please try your purchase again.');
-        router.replace(router.asPath);
+        router.setParams({ refresh: Date.now().toString() });
       } else {
         Alert.alert('Retry Failed', 'Initialization still failed. Please check your configuration.');
       }

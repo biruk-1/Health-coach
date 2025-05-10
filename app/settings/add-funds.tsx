@@ -6,7 +6,7 @@ import PurchaseScreen from '../PurchaseScreen';
 export default function AddFundsScreen() {
   const { returnToId } = useLocalSearchParams();
   
-  // Determine the return route based on parameters
+  // Fix the path to properly return to the settings tab
   const onCloseRoute = returnToId ? `/[id]?id=${returnToId}` : '/(tabs)/settings';
   const successRoute = returnToId ? `/[id]?id=${returnToId}` : '/(tabs)/settings';
   

@@ -1,4 +1,3 @@
-import { supabase } from '../lib/supabase';
 import { Platform } from 'react-native';
 import { getHealthCoaches as apiGetHealthCoaches, getCoachById as apiGetCoachById } from './api';
 
@@ -394,7 +393,7 @@ export const initializeDatabase = async () => {
     // Only refresh cache if TTL expired or not loaded yet
     if (dataLoaded && now - lastFetchTime < CACHE_TTL) {
       console.log('Using cached data, age:', Math.round((now - lastFetchTime) / 1000), 'seconds');
-      console.log('Cache contains:', cachedCoaches.length, 'coaches from health-coach.csv');
+      console.log('Cache contains:', cachedCoaches.length, 'coaches from local storage');
       return true;
     }
     
@@ -410,44 +409,16 @@ export const initializeDatabase = async () => {
     });
     
     try {
-      // First try loading all coaches from Supabase - no limits
-      console.log('Fetching all coaches from Supabase (health-coach.csv data)...');
-      console.log('Supabase URL:', supabase.supabaseUrl);
+      // Try to fetch from Digital Ocean API
+      console.log('Fetching coaches from Digital Ocean API...');
       
-      // Get the count first
-      const { data: countData, error: countError } = await supabase
-        .from('health_coaches')
-        .select('count');
-        
-      if (!countError && countData && countData.length > 0) {
-        const totalCount = countData[0].count;
-        console.log(`Expected count from health-coach.csv: ${totalCount} coaches`);
-        
-        if (totalCount === 0) {
-          console.warn('No coaches found in Supabase. The health-coach.csv file might not be imported.');
-          throw new Error('No coaches found in Supabase');
-        }
-      }
+      // Use the API function that connects to Digital Ocean
+      const apiResult = await apiGetHealthCoaches({ limit: 1000 });
       
-      // Fetch ALL coaches without limit - critical for getting all data from health-coach.csv
-      const { data, error } = await supabase
-        .from('health_coaches')
-        .select('*');
-      
-      if (error) {
-        console.error('Supabase error details:', JSON.stringify(error));
-        throw new Error(`Supabase error: ${error.message}`);
-      }
-      
-      if (!data || data.length === 0) {
-        console.warn('No coaches found in Supabase - health-coach.csv might not be imported');
-        throw new Error('No coaches found in Supabase');
-      }
-      
-      console.log('SUCCESS: Received', data.length, 'coaches from health-coach.csv data in Supabase');
-      cachedCoaches = data as HealthCoach[];
+      if (apiResult.coaches && apiResult.coaches.length > 0) {
+        console.log('SUCCESS: Received', apiResult.coaches.length, 'coaches from Digital Ocean API');
+        cachedCoaches = apiResult.coaches;
       lastFetchTime = now;
-      console.log('Loaded coaches from health-coach.csv:', cachedCoaches.length);
       
       // Verify we have the data with specialty breakdown
       const specialties = cachedCoaches.reduce((acc, coach) => {
@@ -457,17 +428,19 @@ export const initializeDatabase = async () => {
       }, {} as Record<string, number>);
       
       console.log('Health coach specialties breakdown:', specialties);
+      } else {
+        throw new Error('No coaches returned from Digital Ocean API');
+      }
       
-    } catch (supabaseError) {
-      console.error('Supabase data unavailable:', supabaseError);
-      console.error('Cannot access health-coach.csv data from Supabase');
+    } catch (apiError) {
+      console.error('Digital Ocean API unavailable:', apiError);
       
       // Only use test data as a fallback if no cached data is available
       if (!dataLoaded || cachedCoaches.length === 0) {
-        console.warn('FALLBACK: Using generated test data instead of health-coach.csv');
-        console.warn('Generating a full set of 5638 coaches to match the CSV file count');
+        console.warn('FALLBACK: Using generated test data');
+        console.warn('Generating a full set of test coaches');
         
-        // Generate a larger dataset to match CSV file
+        // Generate a larger dataset
         cachedCoaches = generateLargeTestDataset(5638);
         lastFetchTime = now;
         console.log('Generated large dataset with', cachedCoaches.length, 'coaches');
@@ -480,7 +453,6 @@ export const initializeDatabase = async () => {
     return true;
   } catch (error) {
     console.error('Database initialization failed:', error);
-    console.error('Cannot access health-coach.csv data - please run the import script');
     
     // Final fallback to test data
     console.warn('EMERGENCY FALLBACK: Using generated test data');
@@ -674,18 +646,9 @@ export const fallbackGetCoachById = async (id: string): Promise<HealthCoach | nu
     // First try from cache
     let coach = cachedCoaches.find(c => c.id === id);
     
-    // If not found in cache, try from Supabase directly
+    // If not found in cache, check hardcoded fallback coaches as last resort
     if (!coach) {
-      console.log('Coach not found in cache, fetching from Supabase');
-      const { data, error } = await supabase
-        .from('health_coaches')
-        .select('*')
-        .eq('id', id)
-        .single();
-        
-      if (error) {
-        console.log('Supabase error, trying fallback coaches:', error.message);
-        // Check our hardcoded fallback coaches
+      console.log('Coach not found in cache, trying fallback coaches');
         coach = fallbackCoaches.find(c => c.id === id);
         if (coach) {
           console.log('Found coach in fallback data:', coach.name);
@@ -696,31 +659,6 @@ export const fallbackGetCoachById = async (id: string): Promise<HealthCoach | nu
           } else {
             cachedCoaches.push(coach);
           }
-          return coach;
-        }
-        throw error;
-      }
-      
-      if (data) {
-        coach = data as HealthCoach;
-        // Update coach in cache
-        const existingIndex = cachedCoaches.findIndex(c => c.id === id);
-        if (existingIndex >= 0) {
-          cachedCoaches[existingIndex] = coach;
-        } else {
-          cachedCoaches.push(coach);
-        }
-      }
-    }
-    
-    // If still not found, check hardcoded fallback coaches as last resort
-    if (!coach) {
-      console.log('Coach not found in Supabase, trying fallback coaches');
-      coach = fallbackCoaches.find(c => c.id === id);
-      if (coach) {
-        console.log('Found coach in fallback data:', coach.name);
-        // Add to cache for future use
-        cachedCoaches.push(coach);
       }
     }
     
@@ -734,62 +672,6 @@ export const fallbackGetCoachById = async (id: string): Promise<HealthCoach | nu
       return fallbackCoach;
     }
     return null;
-  }
-};
-
-export const addHealthCoachToFavorites = async (userId: string, healthCoachId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('favorites')
-      .insert([{ user_id: userId, health_coach_id: healthCoachId }]);
-    
-    if (error) {
-      console.error('Error adding health coach to favorites:', error);
-      throw error;
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('Failed to add health coach to favorites:', error);
-    throw error;
-  }
-};
-
-export const removeHealthCoachFromFavorites = async (userId: string, healthCoachId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('favorites')
-      .delete()
-      .match({ user_id: userId, health_coach_id: healthCoachId });
-    
-    if (error) {
-      console.error('Error removing health coach from favorites:', error);
-      throw error;
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('Failed to remove health coach from favorites:', error);
-    throw error;
-  }
-};
-
-export const getUserFavorites = async (userId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('favorites')
-      .select('health_coach_id')
-      .eq('user_id', userId);
-    
-    if (error) {
-      console.error('Error fetching user favorites:', error);
-      throw error;
-    }
-    
-    return data.map(favorite => favorite.health_coach_id);
-  } catch (error) {
-    console.error('Failed to get user favorites:', error);
-    throw error;
   }
 };
 

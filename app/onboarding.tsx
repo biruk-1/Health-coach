@@ -521,6 +521,12 @@ export default function OnboardingScreen() {
 
             {step === 2 && (
               <View style={styles.inputContainer}>
+                {formErrors.email ? (
+                  <View style={styles.fieldErrorContainer}>
+                    <Ionicons name="alert-circle" size={16} color="#dc2626" />
+                    <Text style={styles.fieldErrorText}>{formErrors.email}</Text>
+                  </View>
+                ) : null}
                 <TextInput
                   style={[styles.input, formErrors.email ? styles.inputError : null]}
                   value={form.email}
@@ -531,14 +537,17 @@ export default function OnboardingScreen() {
                   autoCapitalize="none"
                   autoFocus={!keyboardVisible}
                 />
-                {formErrors.email ? (
-                  <Text style={styles.errorText}>{formErrors.email}</Text>
-                ) : null}
               </View>
             )}
 
             {step === 3 && (
               <View style={styles.inputContainer}>
+                {formErrors.password ? (
+                  <View style={styles.fieldErrorContainer}>
+                    <Ionicons name="alert-circle" size={16} color="#dc2626" />
+                    <Text style={styles.fieldErrorText}>{formErrors.password}</Text>
+                  </View>
+                ) : null}
                 <TextInput
                   style={[styles.input, formErrors.password ? styles.inputError : null]}
                   value={form.password}
@@ -556,14 +565,17 @@ export default function OnboardingScreen() {
                   placeholderTextColor="#94a3b8"
                   secureTextEntry
                 />
-                {formErrors.password ? (
-                  <Text style={styles.errorText}>{formErrors.password}</Text>
-                ) : null}
               </View>
             )}
 
             {step === 4 && (
               <View style={styles.inputContainer}>
+                {formErrors.phone ? (
+                  <View style={styles.fieldErrorContainer}>
+                    <Ionicons name="alert-circle" size={16} color="#dc2626" />
+                    <Text style={styles.fieldErrorText}>{formErrors.phone}</Text>
+                  </View>
+                ) : null}
                 <CustomPhoneInput
                   ref={phoneInput}
                   defaultValue={form.phone}
@@ -573,9 +585,6 @@ export default function OnboardingScreen() {
                   textInputStyle={styles.phoneTextInput}
                   placeholder="(555) 555-5555"
                 />
-                {formErrors.phone ? (
-                  <Text style={styles.errorText}>{formErrors.phone}</Text>
-                ) : null}
               </View>
             )}
 
@@ -624,18 +633,21 @@ export default function OnboardingScreen() {
 
             {step === 6 && (
               <View style={styles.inputContainer}>
+                {formErrors.height ? (
+                  <View style={styles.fieldErrorContainer}>
+                    <Ionicons name="alert-circle" size={16} color="#dc2626" />
+                    <Text style={styles.fieldErrorText}>{formErrors.height}</Text>
+                  </View>
+                ) : null}
                 <TextInput
                   style={[styles.input, formErrors.height ? styles.inputError : null]}
                   value={form.height}
                   onChangeText={text => setForm({ ...form, height: text })}
-                  placeholder="Enter your height (e.g., 5 feet 10 inches)"
+                  placeholder="5ft 11in or 175cm"
                   placeholderTextColor="#94a3b8"
                   keyboardType="default"
                   autoFocus={!keyboardVisible}
                 />
-                {formErrors.height ? (
-                  <Text style={styles.errorText}>{formErrors.height}</Text>
-                ) : null}
               </View>
             )}
 
@@ -1064,5 +1076,21 @@ const styles = StyleSheet.create({
     fontSize: Platform.OS === 'ios' ? 14 : 13,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  fieldErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef2f2',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#fee2e2',
+  },
+  fieldErrorText: {
+    color: '#dc2626',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
 });

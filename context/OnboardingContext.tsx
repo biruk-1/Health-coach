@@ -1,6 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter, useSegments } from 'expo-router';
 import { useAuth } from './AuthContext';
 
 type OnboardingContextType = {
@@ -12,12 +11,11 @@ type OnboardingContextType = {
 const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
-  const [isOnboarded, setIsOnboarded] = useState<boolean | null>(null);
+  const [isOnboarded, setIsOnboarded] = useState<boolean>(false);
   const [userType, setUserType] = useState<'user' | 'coach' | null>(null);
-  const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const isMounted = useRef(true);
-  const segments = useSegments();
+  const isInitialized = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -25,134 +23,78 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     };
   }, []);
 
+  // Stabilized onboarding check - only runs once on mount and when user changes
   useEffect(() => {
-    checkOnboardingStatus();
-  }, []);
-
-  useEffect(() => {
-    // Don't proceed if we're still loading onboarding status or auth
-    if (isOnboarded === null || authLoading) return;
-
-    // Public routes that don't require authentication
-    const publicRoutes = [
-      'onboarding',  
-      'login', 
-      'index',
-      '(auth)'
-    ];
+    // Skip if we've already initialized or no user is available
+    if (isInitialized.current && !user) return;
     
-    // Personalization routes that require authentication but not onboarding
-    const personalizationRoutes = [
-      'onboarding-select',
-      'user-onboarding',
-      'coach-onboarding'
-    ];
-    
-    // Special routes that have their own handling
-    const specialRoutes = [
-      'verify-psychic',
-      'verify-details', 
-      'verify-success', 
-      'psychic-onboarding',
-      'verify-coach',
-      '[id]', 
-      'cosmic-ai-chat', 
-      'cosmic-ai-subscription'
-    ];
-    
-    // Get the current path from segments
-    const currentRoute = segments[0] || '';
-    
-    // Don't redirect for special route patterns
-    const noRedirectPatterns = [
-      currentRoute === '(tabs)', 
-      currentRoute.startsWith('settings'),
-      segments.length > 1 && segments[0] === 'psychic-onboarding'
-    ];
-    
-    const shouldNotRedirect = noRedirectPatterns.some(pattern => pattern === true);
-    
-    // Check if the current path is in the relevant route groups
-    const isPublicRoute = publicRoutes.includes(currentRoute);
-    const isPersonalizationRoute = personalizationRoutes.includes(currentRoute);
-    const isSpecialRoute = specialRoutes.includes(currentRoute);
-    
-    console.log('OnboardingContext - Current route:', currentRoute);
-    console.log('OnboardingContext - User:', user ? 'Logged in' : 'Not logged in');
-    console.log('OnboardingContext - Is onboarded:', isOnboarded);
-    
-    // Handle navigation based on authentication and onboarding status
-    if (user) {
-      // Check if this is a newly registered user or if there's a navigation lock
-      const checkNavigation = async () => {
-        // Check for navigation lock first
-        try {
-          const lastNavigationTime = await AsyncStorage.getItem('last_navigation_timestamp');
-          if (lastNavigationTime) {
-            const timeSinceLastNavigation = Date.now() - parseInt(lastNavigationTime);
-            // If navigation happened within the last 3 seconds, skip any redirect
-            if (timeSinceLastNavigation < 3000) {
-              console.log('OnboardingContext - Recent navigation detected, respecting navigation lock');
-              return;
-            }
-          }
-        } catch (error) {
-          console.error('Error checking navigation lock:', error);
+    const checkOnboardingStatus = async () => {
+      try {
+        console.log('OnboardingContext - Checking onboarding status');
+        
+        // Get onboarding status from storage
+        const onboardedValue = await AsyncStorage.getItem('onboarded');
+        const userTypeValue = await AsyncStorage.getItem('userType');
+        
+        console.log('OnboardingContext - Onboarded value from storage:', onboardedValue);
+        console.log('OnboardingContext - User type value from storage:', userTypeValue);
+        
+        // Only update state if component is still mounted
+        if (isMounted.current) {
+          const isOnboardedValue = onboardedValue === 'true';
+          setIsOnboarded(isOnboardedValue);
+          setUserType(userTypeValue === 'user' ? 'user' : userTypeValue === 'coach' ? 'coach' : null);
+          
+          // Mark as initialized to prevent repeated checks
+          isInitialized.current = true;
+          console.log('OnboardingContext - Initialization complete');
         }
-        
-        // Check for newly registered user
-        const registrationStatus = await AsyncStorage.getItem('registration_status');
-        const isNewlyRegistered = registrationStatus && registrationStatus.startsWith('new_');
-        
-        // For newly registered users, never redirect from onboarding-select
-        if (isNewlyRegistered && currentRoute === 'onboarding-select') {
-          console.log('OnboardingContext - Newly registered user on onboarding-select, keeping them there');
-          return;
+      } catch (error) {
+        console.error('OnboardingContext - Error checking onboarding status:', error);
+        if (isMounted.current) {
+          setIsOnboarded(false);
+          setUserType(null);
         }
-        
-        // Only redirect if not a newly registered user and not respecting a navigation lock
-        if (isOnboarded && isPersonalizationRoute && !isNewlyRegistered) {
-        // If already onboarded, redirect to main app instead of personalization screens
-          console.log('OnboardingContext - User is authenticated and onboarded, redirecting to tabs');
-        router.replace('/(tabs)');
       }
-      };
-      
-      checkNavigation();
-    }
-  }, [isOnboarded, user, authLoading, segments, router]);
+    };
+    
+    checkOnboardingStatus();
+  }, [user]);
 
-  const checkOnboardingStatus = async () => {
+  // Memoize the completeOnboarding function to prevent unnecessary rerenders
+  const completeOnboarding = useCallback(async (type?: 'user' | 'coach') => {
     try {
-      const onboardedValue = await AsyncStorage.getItem('onboarded');
-      const userTypeValue = await AsyncStorage.getItem('userType');
+      console.log('OnboardingContext - Completing onboarding as type:', type || 'default');
       
-      setIsOnboarded(onboardedValue === 'true');
-      setUserType(userTypeValue === 'user' ? 'user' : userTypeValue === 'coach' ? 'coach' : null);
-    } catch (error) {
-      console.error('Error checking onboarding status:', error);
-      setIsOnboarded(false);
-      setUserType(null);
-    }
-  };
-
-  const completeOnboarding = async (type?: 'user' | 'coach') => {
-    try {
+      // Store the onboarding status and user type
       await AsyncStorage.setItem('onboarded', 'true');
       
       if (type) {
         await AsyncStorage.setItem('userType', type);
-        setUserType(type);
       }
       
-      setIsOnboarded(true);
+      // Store timestamp to track onboarding completion
+      await AsyncStorage.setItem('onboarding_completed_at', new Date().toISOString());
+      
+      // Clear any new registration flags to prevent future redirect conflicts
+      await AsyncStorage.removeItem('registration_status');
+      
+      // Update state
+      if (isMounted.current) {
+        setIsOnboarded(true);
+        if (type) setUserType(type);
+      }
+      
+      console.log('OnboardingContext - Onboarding completed successfully');
+      return;
     } catch (error) {
-      console.error('Error saving onboarding status:', error);
+      console.error('OnboardingContext - Error completing onboarding:', error);
+      throw error;
     }
-  };
+  }, []);
 
   return (
-    <OnboardingContext.Provider value={{ isOnboarded: !!isOnboarded, userType, completeOnboarding }}>
+    <OnboardingContext.Provider value={{ isOnboarded, userType, completeOnboarding }}>
       {children}
     </OnboardingContext.Provider>
   );

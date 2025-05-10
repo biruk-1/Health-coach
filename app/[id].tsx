@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity, SafeAreaView, Platform, StatusBar, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,79 +6,133 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getHealthCoachById, HealthCoach } from '../services/database';
 import { useAuth } from '../context/AuthContext';
 import { usePurchases } from '../context/PurchaseContext';
+import { useFavorites } from '../context/FavoritesContext';
+import { useAppNavigation } from '../lib/navigation';
 
 export default function CoachDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const { user } = useAuth();
   const { balance, refreshBalance } = usePurchases();
+  const { isFavorite, addFavorite, removeFavorite } = useFavorites();
   const [coach, setCoach] = useState<HealthCoach | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [favorited, setFavorited] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const CREDITS_PER_MESSAGE = 2; // Cost per message
+  const navigation = useAppNavigation();
 
+  // Check if coach is in favorites
   useEffect(() => {
-    // If no user is authenticated, this check is moved to the _layout.tsx navigation guard
-    // This prevents the component from redirecting itself
-    
-    async function loadCoachDetails() {
-      try {
-        setLoading(true);
-        setError(null);
-        console.log('Loading coach details for ID:', id);
-        
-        if (!id) {
-          throw new Error('No coach ID provided');
-        }
+    if (coach) {
+      const isFav = isFavorite(coach.id);
+      console.log(`Coach ${coach.id} favorite status:`, isFav);
+      setFavorited(isFav);
+    }
+  }, [coach, isFavorite]);
 
-        // Make sure we have a clean string ID
-        const coachIdString = id.toString().trim();
-        console.log('Fetching coach with cleaned ID:', coachIdString);
+  // Optimized coach data loading with caching and retry logic
+  const loadCoachDetails = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('Loading coach details for ID:', id);
+      
+      if (!id) {
+        throw new Error('No coach ID provided');
+      }
+
+      // Make sure we have a clean string ID
+      const coachIdString = id.toString().trim();
+      console.log('Fetching coach with cleaned ID:', coachIdString);
+      
+      // Try to fetch the coach with 2 attempts, with better timeout handling
+      let coachData = null;
+      let attempts = 0;
+      
+      while (!coachData && attempts < 3) {
+        attempts++;
+        console.log(`Attempt ${attempts} to fetch coach with ID: ${coachIdString}`);
         
-        // Try to fetch the coach with 2 attempts
-        let coachData = null;
-        let attempts = 0;
-        
-        while (!coachData && attempts < 2) {
-          attempts++;
-          console.log(`Attempt ${attempts} to fetch coach with ID: ${coachIdString}`);
+        try {
+          // Set a timeout promise to avoid long hanging requests
+          const timeoutPromise = new Promise<null>((_, reject) => {
+            setTimeout(() => reject(new Error('Request timeout')), 3000);
+          });
           
-          coachData = await getHealthCoachById(coachIdString);
+          // Race between the actual fetch and the timeout
+          coachData = await Promise.race([
+            getHealthCoachById(coachIdString),
+            timeoutPromise
+          ]);
           
-          if (!coachData && attempts < 2) {
-            console.log('Coach not found on first attempt, waiting before retry...');
-            // Small delay before retry
-            await new Promise(resolve => setTimeout(resolve, 500)); 
+          if (coachData) break;
+        } catch (fetchError) {
+          console.log(`Attempt ${attempts} failed:`, fetchError);
+          
+          if (attempts < 3) {
+            // Exponential backoff
+            const delay = 300 * Math.pow(2, attempts - 1);
+            console.log(`Waiting ${delay}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
           }
         }
-        
-        if (!coachData) {
-          console.error('Coach not found after multiple attempts for ID:', coachIdString);
-          throw new Error('Coach not found. The coach may have been removed or is temporarily unavailable.');
-        }
-        
-        console.log('Coach data loaded successfully:', coachData.name);
-        setCoach(coachData);
-      } catch (err) {
-        console.error('Error loading coach:', err);
-        const errorMessage = err.message || 'Failed to load coach details';
-        setError(errorMessage);
-        
-        // Log more details about the error for debugging
-        if (err.response) {
-          console.error('API Error Response:', err.response);
-        }
-      } finally {
-        setLoading(false);
       }
+      
+      if (!coachData) {
+        console.error('Coach not found after multiple attempts for ID:', coachIdString);
+        throw new Error('Coach not found. The coach may have been removed or is temporarily unavailable.');
+      }
+      
+      console.log('Coach data loaded successfully:', coachData.name);
+      setCoach(coachData);
+    } catch (err) {
+      console.error('Error loading coach:', err);
+      const errorMessage = err.message || 'Failed to load coach details';
+      setError(errorMessage);
+      
+      // Log more details about the error for debugging
+      if (err.response) {
+        console.error('API Error Response:', err.response);
+      }
+    } finally {
+      setLoading(false);
     }
-
-    loadCoachDetails();
-    refreshBalance(); // Load the user's current credit balance
   }, [id]);
+
+  useEffect(() => {
+    loadCoachDetails();
+    refreshBalance();
+  }, [loadCoachDetails, refreshBalance]);
+
+  const handleToggleFavorite = async () => {
+    if (!coach) return;
+
+    try {
+      // Disable interaction during favorite operation
+      setLoading(true);
+      
+      if (favorited) {
+        console.log(`Removing coach from favorites: ${coach.name} (${coach.id})`);
+        await removeFavorite(coach.id);
+        setFavorited(false);
+        Alert.alert("Removed", `${coach.name} has been removed from your favorites`);
+      } else {
+        console.log(`Adding coach to favorites: ${coach.name} (${coach.id})`);
+        await addFavorite(coach);
+        setFavorited(true);
+        Alert.alert("Added", `${coach.name} has been added to your favorites`);
+      }
+    } catch (error) {
+      console.error('Error toggling favorite status:', error);
+      Alert.alert("Error", "There was a problem updating your favorites. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSendMessage = () => {
     if (!message.trim()) {
@@ -95,13 +149,8 @@ export default function CoachDetailScreen() {
           { 
             text: "Add Credits", 
             onPress: () => {
-              // Navigate to purchase screen using replace to prevent navigation stack issues
-              router.replace({
-                pathname: '/settings/add-funds',
-                params: {
-                  returnToId: id
-                }
-              });
+              // Use the safe navigation utility
+              navigation.navigateToAddFunds(id.toString());
             } 
           }
         ]
@@ -112,13 +161,12 @@ export default function CoachDetailScreen() {
     setIsSending(true);
     
     // Simulate sending message
-      setTimeout(() => {
-      // Would normally deduct credits through an API call
+    setTimeout(() => {
       Alert.alert("Message Sent", `Your message has been sent to ${coach?.name}. ${CREDITS_PER_MESSAGE} credits have been deducted from your balance.`);
       setMessage('');
       setIsSending(false);
-      refreshBalance(); // Refresh balance after sending
-      }, 1000);
+      refreshBalance();
+    }, 1000);
   };
   
   if (loading) {
@@ -177,19 +225,29 @@ export default function CoachDetailScreen() {
         style={styles.container} 
         contentContainerStyle={styles.contentContainer}
         ref={scrollViewRef}
-        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
-            <View style={styles.header}>
+        {/* Hero Image and Gradient Overlay */}
+        <View style={styles.heroContainer}>
           <Image 
             source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }} 
-            style={styles.profileImage} 
+            style={styles.heroImage} 
           />
-          <View style={styles.headerContent}>
-            <View style={styles.nameRow}>
-              <Text style={styles.name}>{coach.name}</Text>
-              {coach.is_verified && (
-                <Ionicons name="checkmark-circle" size={24} color="#6366f1" style={styles.verifiedIcon} />
-              )}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.7)']}
+            style={styles.heroGradient}
+          >
+            <View style={styles.profileContainer}>
+              <Image 
+                source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }} 
+                style={styles.profileImage} 
+              />
+              
+              <View style={styles.nameContainer}>
+                <View style={styles.nameRow}>
+                  <Text style={styles.name}>{coach.name}</Text>
+                  {coach.is_verified && (
+                    <Ionicons name="checkmark-circle" size={24} color="#6366f1" style={styles.verifiedIcon} />
+                  )}
               </View>
                 <Text style={styles.specialty}>{coach.specialty}</Text>
                 <View style={styles.ratingContainer}>
@@ -202,10 +260,33 @@ export default function CoachDetailScreen() {
                         : '5.0'}
                   </Text>
                   <Text style={styles.reviews}>({coach.reviews_count || 0} reviews)</Text>
+                </View>
+              </View>
             </View>
-          </View>
+          </LinearGradient>
         </View>
-
+        
+        {/* Favorite Button */}
+        <TouchableOpacity 
+          style={styles.favoriteButtonContainer}
+          onPress={handleToggleFavorite}
+        >
+          <LinearGradient
+            colors={favorited ? ['#ef4444', '#dc2626'] : ['#6366f1', '#4f46e5']}
+            style={styles.favoriteButton}
+          >
+            <Ionicons 
+              name={favorited ? "heart" : "heart-outline"} 
+              size={24} 
+              color="#ffffff" 
+            />
+            <Text style={styles.favoriteButtonText}>
+              {favorited ? 'Remove from Favorites' : 'Add to Favorites'}
+            </Text>
+          </LinearGradient>
+        </TouchableOpacity>
+        
+        {/* Coach Details */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <Text style={styles.bio}>
@@ -219,16 +300,40 @@ export default function CoachDetailScreen() {
             {coach.tags?.map((tag, index) => (
               <View key={index} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
-            </View>
+              </View>
             )) || 
             ['Health', 'Wellness', coach.specialty].filter(Boolean).map((tag, index) => (
               <View key={index} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
             </View>
             ))}
+            </View>
+            </View>
+
+        {/* Additional Info Cards */}
+        <View style={styles.infoCardsContainer}>
+          <View style={styles.infoCard}>
+            <Ionicons name="location-outline" size={24} color="#6366f1" />
+            <Text style={styles.infoCardTitle}>Location</Text>
+            <Text style={styles.infoCardText}>{coach.location || 'Remote'}</Text>
+            </View>
+          
+          <View style={styles.infoCard}>
+            <Ionicons name="time-outline" size={24} color="#6366f1" />
+            <Text style={styles.infoCardTitle}>Experience</Text>
+            <Text style={styles.infoCardText}>{coach.years_experience || '5'} years</Text>
+            </View>
+          
+          <View style={styles.infoCard}>
+            <Ionicons name="checkmark-circle-outline" size={24} color="#6366f1" />
+            <Text style={styles.infoCardTitle}>Status</Text>
+            <View style={[styles.statusBadge, coach.is_online ? styles.onlineBadge : styles.offlineBadge]}>
+              <Text style={styles.statusText}>{coach.is_online ? 'Online' : 'Offline'}</Text>
+            </View>
           </View>
         </View>
 
+        {/* Message Section */}
         <View style={styles.messageSection}>
           <Text style={styles.sectionTitle}>Send a Message</Text>
           <Text style={styles.creditsInfo}>
@@ -255,20 +360,6 @@ export default function CoachDetailScreen() {
           </TouchableOpacity>
         </View>
         </View>
-
-        <TouchableOpacity
-          style={styles.bookButton}
-          onPress={() => Alert.alert('Book Session', `Book a session with ${coach.name}`)}
-        >
-          <LinearGradient
-            colors={['#6366f1', '#4f46e5']}
-            style={styles.gradientButton}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <Text style={styles.bookButtonText}>Book a Session</Text>
-          </LinearGradient>
-        </TouchableOpacity>
       </ScrollView>
     </>
   );
@@ -280,21 +371,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   contentContainer: {
+    paddingBottom: 40,
+  },
+  heroContainer: {
+    height: 250,
+    position: 'relative',
+  },
+  heroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  heroGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '100%',
+    justifyContent: 'flex-end',
     padding: 16,
   },
-  header: {
+  profileContainer: {
     flexDirection: 'row',
-    marginBottom: 20,
+    alignItems: 'flex-end',
   },
   profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#ffffff',
     marginRight: 16,
   },
-  headerContent: {
+  nameContainer: {
     flex: 1,
-    justifyContent: 'center',
   },
   nameRow: {
     flexDirection: 'row',
@@ -303,16 +412,25 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#1e293b',
+    color: '#ffffff',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
     marginBottom: 4,
   },
   verifiedIcon: {
     marginLeft: 8,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   specialty: {
     fontSize: 16,
-    color: '#64748b',
-    marginBottom: 8,
+    color: '#e5e7eb',
+    marginBottom: 6,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   ratingContainer: {
     flexDirection: 'row',
@@ -321,16 +439,52 @@ const styles = StyleSheet.create({
   rating: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1e293b',
+    color: '#ffffff',
     marginLeft: 4,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   reviews: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#e5e7eb',
     marginLeft: 4,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  favoriteButtonContainer: {
+    marginTop: 16,
+    marginHorizontal: 16,
+  },
+  favoriteButton: {
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  favoriteButtonText: {
+    color: '#ffffff',
+    fontWeight: '600',
+    marginLeft: 8,
+    fontSize: 16,
   },
   section: {
-    marginBottom: 24,
+    marginHorizontal: 16,
+    marginTop: 24,
   },
   sectionTitle: {
     fontSize: 18,
@@ -362,8 +516,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  infoCardsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginHorizontal: 16,
+    marginTop: 24,
+  },
+  infoCard: {
+    width: '31%',
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  infoCardTitle: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  infoCardText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1e293b',
+    textAlign: 'center',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 2,
+  },
+  onlineBadge: {
+    backgroundColor: '#dcfce7',
+  },
+  offlineBadge: {
+    backgroundColor: '#fee2e2',
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#166534',
+  },
   messageSection: {
-    marginBottom: 24,
+    marginHorizontal: 16,
+    marginTop: 24,
   },
   creditsInfo: {
     fontSize: 14,
@@ -398,23 +608,6 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.5,
-  },
-  bookButton: {
-    marginTop: 8,
-    marginBottom: 40,
-    borderRadius: 12,
-    overflow: 'hidden',
-    elevation: 4,
-  },
-  gradientButton: {
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bookButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,

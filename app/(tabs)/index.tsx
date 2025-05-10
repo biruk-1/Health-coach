@@ -24,6 +24,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../lib/supabase';
 import { getHealthCoaches, HealthCoach, initializeDatabase } from '../../services/database';
 import { useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAppNavigation } from '../../lib/navigation';
 
 type PractitionerType = 'nutrition' | 'fitness' | 'mental' | 'sleep' | 'wellness' | 'all';
 
@@ -44,7 +46,7 @@ const getInitials = (name: string) => {
 
 export default function CoachesScreen() {
   const router = useRouter();
-  const [selectedType, setSelectedType] = useState<PractitionerType>('all');
+  const navigation = useAppNavigation();
   const [practitioners, setPractitioners] = useState<HealthCoach[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,39 +59,8 @@ export default function CoachesScreen() {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMorePages, setHasMorePages] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [selectedType, setSelectedType] = useState<PractitionerType>('all');
   
-  // Animation values for each filter type
-  const filterAnimations = {
-    all: new Animated.Value(selectedType === 'all' ? 1 : 0),
-    nutrition: new Animated.Value(selectedType === 'nutrition' ? 1 : 0),
-    fitness: new Animated.Value(selectedType === 'fitness' ? 1 : 0),
-    mental: new Animated.Value(selectedType === 'mental' ? 1 : 0),
-    wellness: new Animated.Value(selectedType === 'wellness' ? 1 : 0),
-    sleep: new Animated.Value(selectedType === 'sleep' ? 1 : 0),
-  };
-
-  const handleFilterChange = (type: PractitionerType) => {
-    console.log(`Setting type to: ${type}`);
-    
-    // Reset all animations first
-    Object.keys(filterAnimations).forEach(key => {
-      Animated.timing(filterAnimations[key as PractitionerType], {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    });
-    
-    // Animate the selected filter
-    Animated.timing(filterAnimations[type], {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-    
-    setSelectedType(type);
-  };
-
   const handlePress = useCallback(async (item: HealthCoach) => {
     try {
       console.log('Navigating to coach detail page for coach:', item);
@@ -105,11 +76,8 @@ export default function CoachesScreen() {
       const coachId = String(item.id).trim();
       console.log('Using coach ID for navigation:', coachId);
       
-      // Navigate to the detail page
-      router.push({
-        pathname: `/[id]`,
-        params: { id: coachId }
-      });
+      // Use the safe navigation utility instead of direct router access
+      navigation.navigateToCoachDetail(coachId);
     } catch (error) {
       console.error('Failed to navigate to coach details:', error);
       // Fallback navigation method
@@ -119,13 +87,24 @@ export default function CoachesScreen() {
         [{ text: 'OK' }]
       );
     }
-  }, [router]);
+  }, [navigation]);
 
   const handleChatPress = useCallback(async () => {
     try {
+      // Set a navigation lock to prevent rapid navigation that could cause conflicts
+      await AsyncStorage.setItem('last_navigation_timestamp', Date.now().toString());
+      
+      // Use a specific navigation path
+      console.log('Navigating to Cosmic AI subscription screen');
       router.push('/cosmic-ai-subscription');
     } catch (error) {
       console.error('Failed to navigate:', error);
+      // Show error to user
+      Alert.alert(
+        'Navigation Error',
+        'There was a problem opening the AI chat. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
   }, [router]);
 
@@ -161,10 +140,6 @@ export default function CoachesScreen() {
     }
   };
 
-  useEffect(() => {
-    loadCoaches();
-  }, [selectedType]);
-
   useFocusEffect(
     useCallback(() => {
       loadCoaches();
@@ -182,34 +157,13 @@ export default function CoachesScreen() {
     }
   }, [error, retryCount]);
 
+  // Add effect to reload coaches when filter type changes
   useEffect(() => {
-    // Reset to page 1 when filter changes and reload coaches
-    setCurrentPage(1);
-    loadCoaches(1, false);
-  }, [selectedType]);
-
-  // Animation for initial selected filter
-  useEffect(() => {
-    // Initially animate the selected filter
     if (selectedType) {
-      Animated.spring(filterAnimations[selectedType], {
-        toValue: 1,
-        friction: 7,
-        tension: 40,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, []);
-
-  // Animation when the selected filter changes
-  useEffect(() => {
-    const animateFilter = async () => {
-      // Reset loading when filter changes
+      console.log('Filter changed to:', selectedType);
       setCurrentPage(1);
-      await loadCoaches(1, false);
-    };
-    
-    animateFilter();
+      loadCoaches(1, false);
+    }
   }, [selectedType]);
 
   const loadCoaches = async (page = 1, append = false) => {
@@ -223,13 +177,12 @@ export default function CoachesScreen() {
 
       const pageSize = 20;
 
-      // Make sure the specialty is properly formatted and only passed if not 'all'
+      // Add specialty filter back when not 'all'
       const searchParams = {
-        specialty: selectedType !== 'all' ? selectedType : undefined,
         page,
         pageSize,
         searchTerm: searchTerm || undefined,
-        rating: undefined,
+        specialty: selectedType !== 'all' ? selectedType : undefined
       };
 
       console.log('Fetching with params:', JSON.stringify(searchParams));
@@ -313,11 +266,28 @@ export default function CoachesScreen() {
     return text.substring(0, maxLength) + '...';
   };
 
+  const handleFilterPress = () => {
+    Alert.alert(
+      "Filter Coaches",
+      "Select a category",
+      [
+        { text: "All", onPress: () => setSelectedType('all') },
+        { text: "Nutrition", onPress: () => setSelectedType('nutrition') },
+        { text: "Fitness", onPress: () => setSelectedType('fitness') },
+        { text: "Mental", onPress: () => setSelectedType('mental') },
+        { text: "Wellness", onPress: () => setSelectedType('wellness') },
+        { text: "Sleep", onPress: () => setSelectedType('sleep') },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
+  };
+
   const renderPractitioner = ({ item }: { item: HealthCoach }) => (
     <TouchableOpacity
       style={styles.practitionerCard}
       onPress={() => handlePress(item)}
       disabled={isLoading}
+      activeOpacity={0.7}
     >
       {/* Add debugging information */}
       {console.log(`Rendering coach card: ID=${item.id}, Name=${item.name}, Specialty=${item.specialty}`)}
@@ -327,12 +297,16 @@ export default function CoachesScreen() {
           uri: item.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop',
         }}
         style={styles.cardBackground}
+        imageStyle={styles.cardBackgroundImage}
       >
-        <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.9)']} style={styles.cardOverlay}>
+        <LinearGradient 
+          colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']} 
+          style={styles.cardOverlay}
+        >
           <View style={styles.cardContent}>
             <View style={styles.nameContainer}>
               <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
-                {truncateText(item.name, 30)}
+                {item.name}
               </Text>
               {item.is_verified && (
                 <View style={styles.verifiedBadge}>
@@ -341,7 +315,7 @@ export default function CoachesScreen() {
               )}
             </View>
             <Text style={styles.specialty} numberOfLines={1} ellipsizeMode="tail">
-              {item.specialty}
+              {item.specialty || 'Health Coach'}
             </Text>
             <View style={styles.ratingContainer}>
               <Ionicons name="star" size={16} color="#fbbf24" />
@@ -373,8 +347,17 @@ export default function CoachesScreen() {
 
     return (
       <View style={styles.emptyContainer}>
-        <Ionicons name="search" size={64} color="#94a3b8" />
-        <Text style={styles.emptyText}>No {selectedType} coaches found</Text>
+        <Ionicons name="people-outline" size={64} color="#94a3b8" />
+        <Text style={styles.emptyTitle}>No Health Coaches Found</Text>
+        <Text style={styles.emptyText}>
+          {searchTerm && selectedType !== 'all'
+            ? `We couldn't find any ${selectedType} coaches matching "${searchTerm}"`
+            : searchTerm 
+              ? `We couldn't find any coaches matching "${searchTerm}"`
+              : selectedType !== 'all'
+                ? `We couldn't find any ${selectedType} coaches`
+                : "We're having trouble loading health coaches right now"}
+        </Text>
         <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
           <Text style={styles.retryButtonText}>Refresh</Text>
         </TouchableOpacity>
@@ -420,7 +403,6 @@ export default function CoachesScreen() {
       console.log('Loading all coaches at once...');
 
       const searchParams = {
-        specialty: selectedType === 'all' ? undefined : selectedType,
         page: 1,
         pageSize: totalCoaches,
         searchTerm: searchTerm || undefined,
@@ -443,124 +425,63 @@ export default function CoachesScreen() {
 
   if (isLoading && !isRefreshing) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <View style={styles.storiesContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storiesScrollContent}>
-                {['All', 'Nutrition', 'Fitness', 'Mental', 'Wellness', 'Sleep'].map((type) => {
-                  const typeLower = type.toLowerCase() as PractitionerType;
-                  const isSelected = selectedType === typeLower;
-                  
-                  // Calculate animated values
-                  const scale = filterAnimations[typeLower].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 1.08]
-                  });
-                  
-                  const iconOpacity = filterAnimations[typeLower].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.7, 1]
-                  });
-                  
-                  return (
-                    <TouchableOpacity
-                      key={type}
-                      style={[styles.storyCircle, isSelected && styles.storyCircleActive]}
-                      onPress={() => {
-                        handleFilterChange(typeLower);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Animated.View style={{ 
-                        transform: [{ scale: scale }],
-                        opacity: iconOpacity
-                      }}>
-                        <LinearGradient 
-                          colors={isSelected 
-                            ? ['#6366f1', '#4f46e5'] 
-                            : ['#818cf8', '#6366f1']} 
-                          style={[
-                            styles.storyGradient,
-                            isSelected && styles.storyGradientActive
-                          ]} 
-                          start={{ x: 0, y: 0 }} 
-                          end={{ x: 1, y: 1 }}
-                        >
-                          <View style={[
-                            styles.storyInner,
-                            isSelected && styles.storyInnerActive
-                          ]}>
-                            <Ionicons
-                              name={
-                                type === 'All' ? 'grid-outline' :
-                                type === 'Nutrition' ? 'restaurant-outline' :
-                                type === 'Fitness' ? 'barbell-outline' :
-                                type === 'Mental' ? 'medkit-outline' :
-                                type === 'Wellness' ? 'leaf-outline' :
-                                'moon-outline'
-                              }
-                              size={24}
-                              color={isSelected ? '#ffffff' : '#6366f1'}
-                            />
-                          </View>
-                        </LinearGradient>
-                      </Animated.View>
-                      <Animated.Text style={[
-                        styles.storyText,
-                        isSelected && styles.storyTextActive,
-                        { 
-                          opacity: iconOpacity,
-                          transform: [{ scale: filterAnimations[typeLower].interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [1, 1.05]
-                          })}] 
-                        }
-                      ]}>
-                        {type}
-                      </Animated.Text>
+      <View style={styles.container}>
+        <StatusBar backgroundColor="#4f46e5" barStyle="light-content" />
+        <LinearGradient 
+          colors={['#4f46e5', '#6366f1']} 
+          start={{ x: 0, y: 0 }} 
+          end={{ x: 1, y: 0 }}
+          style={styles.headerBackground}
+        >
+          <SafeAreaView style={styles.safeAreaTop}>
+            <View style={styles.headerContent}>
+              <View>
+                <Text style={styles.headerTitle}>Health Coaches</Text>
+                <Text style={styles.headerSubtitle}>Find your perfect wellness match</Text>
+              </View>
+              <View style={styles.searchContainer}>
+                {showSearch ? (
+                  <View style={styles.searchInputContainer}>
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Search coaches..."
+                      placeholderTextColor="#94a3b8"
+                      value={searchTerm}
+                      onChangeText={setSearchTerm}
+                      onSubmitEditing={handleSearch}
+                      autoFocus
+                    />
+                    <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+                      <Ionicons name="close-circle" size={20} color="#94a3b8" />
                     </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                  </View>
+                ) : (
+                  <View style={styles.headerActions}>
+                    <TouchableOpacity style={styles.iconButton} onPress={() => setShowSearch(true)}>
+                      <Ionicons name="search" size={22} color="#ffffff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.iconButton} onPress={handleFilterPress}>
+                      <Ionicons name="filter" size={22} color="#ffffff" />
+                      {selectedType !== 'all' && (
+                        <View style={styles.filterBadge}>
+                          <Text style={styles.filterBadgeText}></Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             </View>
+          </SafeAreaView>
+        </LinearGradient>
 
-            <View style={styles.searchContainer}>
-              {showSearch ? (
-                <View style={styles.searchInputContainer}>
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search by name or specialty..."
-                    placeholderTextColor="#94a3b8"
-                    value={searchTerm}
-                    onChangeText={setSearchTerm}
-                    onSubmitEditing={handleSearch}
-                    autoFocus
-                  />
-                  <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-                    <Ionicons name="close-circle" size={20} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <TouchableOpacity style={styles.searchButton} onPress={() => setShowSearch(true)}>
-                  <Ionicons name="search" size={20} color="#ffffff" />
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                style={styles.filterButton}
-                onPress={() => Alert.alert('Filters', 'Filter functionality would go here')}
-              >
-                <Ionicons name="filter" size={20} color="#ffffff" />
-              </TouchableOpacity>
-            </View>
-          </View>
-
+        <SafeAreaView style={styles.safeAreaBottom}>
           {totalCoaches > 0 && (
             <View style={styles.resultsInfo}>
               <Text style={styles.resultsText}>
-                Showing {practitioners.length} of {totalCoaches} {selectedType === 'all' ? 'coaches' : selectedType + 's'}{' '}
+                Showing {practitioners.length} of {totalCoaches} health coaches
                 {searchTerm ? ` matching "${searchTerm}"` : ''}
+                {selectedType !== 'all' ? ` in ${selectedType}` : ''}
                 {currentPage > 1 ? ` (Page ${currentPage})` : ''}
               </Text>
             </View>
@@ -594,8 +515,8 @@ export default function CoachesScreen() {
               </LinearGradient>
             </TouchableOpacity>
           </View>
-        </View>
-      </SafeAreaView>
+        </SafeAreaView>
+      </View>
     );
   }
 
@@ -614,124 +535,63 @@ export default function CoachesScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View style={styles.storiesContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storiesScrollContent}>
-              {['All', 'Nutrition', 'Fitness', 'Mental', 'Wellness', 'Sleep'].map((type) => {
-                const typeLower = type.toLowerCase() as PractitionerType;
-                const isSelected = selectedType === typeLower;
-                
-                // Calculate animated values
-                const scale = filterAnimations[typeLower].interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [1, 1.08]
-                });
-                
-                const iconOpacity = filterAnimations[typeLower].interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.7, 1]
-                });
-                
-                return (
-                  <TouchableOpacity
-                    key={type}
-                    style={[styles.storyCircle, isSelected && styles.storyCircleActive]}
-                    onPress={() => {
-                      handleFilterChange(typeLower);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Animated.View style={{ 
-                      transform: [{ scale: scale }],
-                      opacity: iconOpacity
-                    }}>
-                      <LinearGradient 
-                        colors={isSelected 
-                          ? ['#6366f1', '#4f46e5'] 
-                          : ['#818cf8', '#6366f1']} 
-                        style={[
-                          styles.storyGradient,
-                          isSelected && styles.storyGradientActive
-                        ]} 
-                        start={{ x: 0, y: 0 }} 
-                        end={{ x: 1, y: 1 }}
-                      >
-                        <View style={[
-                          styles.storyInner,
-                          isSelected && styles.storyInnerActive
-                        ]}>
-                          <Ionicons
-                            name={
-                              type === 'All' ? 'grid-outline' :
-                              type === 'Nutrition' ? 'restaurant-outline' :
-                              type === 'Fitness' ? 'barbell-outline' :
-                              type === 'Mental' ? 'medkit-outline' :
-                              type === 'Wellness' ? 'leaf-outline' :
-                              'moon-outline'
-                            }
-                            size={24}
-                            color={isSelected ? '#ffffff' : '#6366f1'}
-                          />
-                        </View>
-                      </LinearGradient>
-                    </Animated.View>
-                    <Animated.Text style={[
-                      styles.storyText,
-                      isSelected && styles.storyTextActive,
-                      { 
-                        opacity: iconOpacity,
-                        transform: [{ scale: filterAnimations[typeLower].interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1, 1.05]
-                        })}] 
-                      }
-                    ]}>
-                      {type}
-                    </Animated.Text>
+    <View style={styles.container}>
+      <StatusBar backgroundColor="#4f46e5" barStyle="light-content" />
+      <LinearGradient 
+        colors={['#4f46e5', '#6366f1']} 
+        start={{ x: 0, y: 0 }} 
+        end={{ x: 1, y: 0 }}
+        style={styles.headerBackground}
+      >
+        <SafeAreaView style={styles.safeAreaTop}>
+          <View style={styles.headerContent}>
+            <View>
+              <Text style={styles.headerTitle}>Health Coaches</Text>
+              <Text style={styles.headerSubtitle}>Find your perfect wellness match</Text>
+            </View>
+            <View style={styles.searchContainer}>
+              {showSearch ? (
+                <View style={styles.searchInputContainer}>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search coaches..."
+                    placeholderTextColor="#94a3b8"
+                    value={searchTerm}
+                    onChangeText={setSearchTerm}
+                    onSubmitEditing={handleSearch}
+                    autoFocus
+                  />
+                  <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+                    <Ionicons name="close-circle" size={20} color="#94a3b8" />
                   </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                </View>
+              ) : (
+                <View style={styles.headerActions}>
+                  <TouchableOpacity style={styles.iconButton} onPress={() => setShowSearch(true)}>
+                    <Ionicons name="search" size={22} color="#ffffff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.iconButton} onPress={handleFilterPress}>
+                    <Ionicons name="filter" size={22} color="#ffffff" />
+                    {selectedType !== 'all' && (
+                      <View style={styles.filterBadge}>
+                        <Text style={styles.filterBadgeText}></Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           </View>
+        </SafeAreaView>
+      </LinearGradient>
 
-          <View style={styles.searchContainer}>
-            {showSearch ? (
-              <View style={styles.searchInputContainer}>
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search by name or specialty..."
-                  placeholderTextColor="#94a3b8"
-                  value={searchTerm}
-                  onChangeText={setSearchTerm}
-                  onSubmitEditing={handleSearch}
-                  autoFocus
-                />
-                <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-                  <Ionicons name="close-circle" size={20} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity style={styles.searchButton} onPress={() => setShowSearch(true)}>
-                <Ionicons name="search" size={20} color="#ffffff" />
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={styles.filterButton}
-              onPress={() => Alert.alert('Filters', 'Filter functionality would go here')}
-            >
-              <Ionicons name="filter" size={20} color="#ffffff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
+      <SafeAreaView style={styles.safeAreaBottom}>
         {totalCoaches > 0 && (
           <View style={styles.resultsInfo}>
             <Text style={styles.resultsText}>
-              Showing {practitioners.length} of {totalCoaches} {selectedType === 'all' ? 'coaches' : selectedType + 's'}{' '}
+              Showing {practitioners.length} of {totalCoaches} health coaches
               {searchTerm ? ` matching "${searchTerm}"` : ''}
+              {selectedType !== 'all' ? ` in ${selectedType}` : ''}
               {currentPage > 1 ? ` (Page ${currentPage})` : ''}
             </Text>
           </View>
@@ -776,215 +636,115 @@ export default function CoachesScreen() {
             </LinearGradient>
           </TouchableOpacity>
         </View>
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
   },
-  header: {
-    backgroundColor: '#f1f5f9',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    paddingTop: Platform.OS === 'ios' ? 10 : (StatusBar.currentHeight || 0) + 10,
-    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+  headerBackground: {
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
-  storiesContainer: {
-    marginBottom: Platform.OS === 'ios' ? 8 : 6,
-    alignItems: 'center',
-    paddingTop: 2,
-    width: '100%',
+  safeAreaTop: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  storiesScrollContent: {
-    paddingHorizontal: 8,
-    paddingVertical: Platform.OS === 'ios' ? 2 : 0,
-    justifyContent: 'flex-start',
+  safeAreaBottom: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  headerContent: {
     flexDirection: 'row',
-    flexWrap: 'nowrap',
-  },
-  storyCircle: {
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginHorizontal: 6,
-    width: isSmallScreen ? 70 : isLargeScreen ? 80 : 75,
   },
-  storyCircleActive: {
-    transform: [{ scale: 1.02 }],
-    marginBottom: 4,
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 8,
+  headerTitle: {
+    fontSize: isSmallScreen ? 22 : isLargeScreen ? 28 : 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    textShadowColor: 'rgba(0, 0, 0, 0.1)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  storyGradient: {
-    width: isSmallScreen ? 70 : isLargeScreen ? 80 : 75,
-    height: isSmallScreen ? 40 : isLargeScreen ? 50 : 45,
-    borderRadius: isSmallScreen ? 20 : (isLargeScreen ? 25 : 22.5),
-    padding: 2,
-    marginBottom: 4,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#6366f1',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  storyGradientActive: {
-    shadowColor: '#4f46e5',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  storyInner: {
-    width: '100%',
-    height: '100%',
-    borderRadius: isSmallScreen ? 18 : isLargeScreen ? 23 : 20,
-    backgroundColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#e2e8f0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
-  },
-  storyInnerActive: {
-    backgroundColor: 'transparent',
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  storyText: {
-    color: '#475569',
-    fontSize: isSmallScreen ? 9 : isLargeScreen ? 11 : 10,
-    fontWeight: '600',
-    textAlign: 'center',
+  headerSubtitle: {
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 16 : 14,
+    color: 'rgba(255, 255, 255, 0.9)',
     marginTop: 2,
-    width: '100%',
-    ...Platform.select({
-      ios: {
-        textShadowColor: 'rgba(0, 0, 0, 0.05)',
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 1,
-      },
-    }),
-  },
-  storyTextActive: {
-    color: '#4f46e5',
-    fontWeight: '700',
   },
   searchContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 6,
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   searchInputContainer: {
-    flex: 1,
     flexDirection: 'row',
     backgroundColor: '#ffffff',
-    borderRadius: 10,
-    paddingHorizontal: 10,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     alignItems: 'center',
-    marginRight: 6,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    width: isSmallScreen ? 220 : 240,
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 2,
+        shadowColor: 'rgba(0, 0, 0, 0.1)',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 6,
       },
       android: {
-        elevation: 1,
+        elevation: 3,
       },
     }),
   },
   searchInput: {
     flex: 1,
     color: '#1e293b',
-    fontSize: isSmallScreen ? 12 : isLargeScreen ? 14 : 13,
-    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+    fontSize: 14,
+    paddingVertical: Platform.OS === 'ios' ? 6 : 4,
   },
   clearButton: {
-    padding: 4,
+    padding: 2,
   },
-  searchButton: {
-    backgroundColor: '#6366f1',
-    borderRadius: 10,
-    padding: Platform.OS === 'ios' ? 8 : 6,
-    marginRight: 6,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#6366f1',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.15,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+  filterBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#ef4444',
+    borderRadius: 6,
+    width: 8,
+    height: 8,
   },
-  filterButton: {
-    backgroundColor: '#6366f1',
-    borderRadius: 10,
-    padding: Platform.OS === 'ios' ? 8 : 6,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#6366f1',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.15,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+  filterBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
   },
   resultsInfo: {
-    padding: 8,
+    padding: 12,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
   resultsText: {
     color: '#64748b',
-    fontSize: isSmallScreen ? 10 : isLargeScreen ? 12 : 11,
+    fontSize: 12,
     textAlign: 'center',
+    fontWeight: '500',
   },
   list: {
     paddingHorizontal: 12,
@@ -1006,13 +766,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: 12,
     margin: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 15,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  emptyTitle: {
+    color: '#1e293b',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   emptyText: {
-    color: '#4b5563',
-    fontSize: isSmallScreen ? 15 : isLargeScreen ? 17 : 16,
-    marginTop: 16,
-    marginBottom: 16,
+    color: '#64748b',
+    fontSize: 14,
+    marginBottom: 24,
     textAlign: 'center',
+    lineHeight: 20,
   },
   practitionerCard: {
     marginBottom: 12,
@@ -1030,10 +809,14 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  cardBackgroundImage: {
+    borderRadius: 16,
+  },
   cardOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
     padding: isSmallScreen ? 12 : isLargeScreen ? 18 : 16,
+    borderRadius: 16,
   },
   cardContent: {
     width: '100%',
@@ -1048,6 +831,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#ffffff',
     flex: 1,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   verifiedBadge: {
     marginLeft: 8,
@@ -1059,6 +845,9 @@ const styles = StyleSheet.create({
     fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
     color: '#e5e7eb',
     marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   ratingContainer: {
     flexDirection: 'row',
@@ -1070,11 +859,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#ffffff',
     marginLeft: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   reviews: {
     fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
     color: '#e5e7eb',
     marginLeft: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   locationContainer: {
     flexDirection: 'row',
@@ -1084,6 +879,9 @@ const styles = StyleSheet.create({
     fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
     color: '#e5e7eb',
     marginLeft: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   floatingButtonContainer: {
     position: 'absolute',

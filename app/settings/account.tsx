@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,17 +14,31 @@ import {
 } from 'react-native';
 import { useAuth } from './../../context/AuthContext';
 import { api } from './../../services/api';
+import { supabase } from './../../lib/supabase';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 
 export default function AccountScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const loadAttempts = useRef(0);
+  const isUnmounted = useRef(false);
+  
+  // Track original values to detect changes
+  const [originalForm, setOriginalForm] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    birthDate: new Date(),
+    birthTime: new Date(),
+    birthLocation: '',
+  });
+  
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -34,21 +48,131 @@ export default function AccountScreen() {
     birthLocation: '',
   });
 
+  // Add a state to track authentication failure
+  const [authFailed, setAuthFailed] = useState(false);
+
+  // Function to check if a field has been modified
+  const isFieldModified = (field: string) => {
+    // @ts-ignore
+    if (field === 'birthDate' || field === 'birthTime') {
+      // For date objects, compare ISO strings
+      // @ts-ignore
+      const originalDate = originalForm[field]?.toISOString();
+      // @ts-ignore
+      const currentDate = form[field]?.toISOString();
+      return originalDate !== currentDate;
+    }
+    // @ts-ignore
+    return originalForm[field] !== form[field];
+  };
+
   useEffect(() => {
-    loadUserData();
-  }, []);
+    // Check if user is authenticated
+    if (!user || !user.id) {
+      setAuthFailed(true);
+      setLoading(false);
+      return;
+    }
+    
+    // Set cleanup function to prevent state updates after unmount
+    return () => {
+      isUnmounted.current = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (user && user.id) {
+      loadUserData();
+    }
+  }, [user]);
 
   const loadUserData = async () => {
     try {
+      // Prevent excessive load attempts
+      if (loadAttempts.current >= 2) {
+        console.log('Maximum load attempts reached, stopping to prevent infinite loop');
+        setLoading(false);
+        return false;
+      }
+      
+      loadAttempts.current += 1;
       setLoading(true);
-      const userData = await api.auth.me();
+      
+      // Make sure we have a user
+      if (!user || !user.id) {
+        throw new Error('User not authenticated. Please log in again.');
+      }
+      
+      console.log('Loading user data for user ID:', user.id, 'Attempt:', loadAttempts.current);
+      
+      // Use user metadata directly when possible
+      if (user.fullName) {
+        console.log('Using cached user data from auth context');
+        const updatedForm = {
+          fullName: user.fullName || '',
+          email: user.email || '',
+          phone: '',
+          birthDate: new Date(),
+          birthTime: new Date(),
+          birthLocation: '',
+        };
+        
+        if (!isUnmounted.current) {
+          setOriginalForm({ ...updatedForm });
+          setForm({ ...updatedForm });
+        }
+        
+        setLoading(false);
+        return true;
+      }
+      
+      // Only make API call if we don't have the data already
+      const response = await api.auth.me();
+      
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      
+      const userData = response.data;
       if (!userData) throw new Error('No user data received');
 
-      const birthDate = userData.birthDate ? new Date(userData.birthDate) : new Date();
-      const birthTime = userData.birthTime 
-        ? new Date(`1970-01-01T${userData.birthTime}`) 
-        : new Date();
+      console.log('User data received:', JSON.stringify(userData));
 
+      // Parse dates and times properly
+      let birthDate = new Date();
+      if (userData.birthDate) {
+        try {
+          birthDate = new Date(userData.birthDate);
+          console.log('Parsed birth date:', birthDate);
+        } catch (e) {
+          console.error('Failed to parse birth date:', userData.birthDate, e);
+        }
+      }
+      
+      // If birthTime is a string (HH:MM:SS format), convert it to a Date object
+      let birthTime = new Date();
+      if (userData.birthTime) {
+        try {
+          if (typeof userData.birthTime === 'string') {
+            // Handle different time formats
+            if (userData.birthTime.includes(':')) {
+              const [hours, minutes, seconds] = userData.birthTime.split(':').map(Number);
+              birthTime = new Date();
+              birthTime.setHours(hours || 0, minutes || 0, seconds || 0, 0);
+            } else {
+              // If it's an ISO string
+              birthTime = new Date(userData.birthTime);
+            }
+          } else if (userData.birthTime instanceof Date) {
+            birthTime = userData.birthTime;
+          }
+          console.log('Parsed birth time:', birthTime);
+        } catch (e) {
+          console.error('Failed to parse birth time:', userData.birthTime, e);
+        }
+      }
+      
+      // Update form with current user data
       const updatedForm = {
         fullName: userData.fullName || '',
         email: userData.email || '',
@@ -58,21 +182,64 @@ export default function AccountScreen() {
         birthLocation: userData.birthLocation || '',
       };
 
-      setForm(updatedForm);
+      console.log('Setting form data to:', JSON.stringify(updatedForm));
+      
+      // Check if component is still mounted before updating state
+      if (!isUnmounted.current) {
+        // Store the original form data for change detection
+        setOriginalForm({ ...updatedForm });
+        
+        // Force a form update by creating a new object
+        setForm({ ...updatedForm });
+      }
+      
       return true;
     } catch (error) {
       console.error('Error loading user data:', error);
-      Alert.alert('Error', 'Failed to load account information');
+      
+      // Check if it's an authentication error
+      if (error.message && (error.message.includes('authentication') || error.message.includes('authenticated'))) {
+        Alert.alert(
+          'Authentication Error',
+          'Your session has expired. Please log in again.',
+          [{ text: 'OK', onPress: () => router.push('/login') }]
+        );
+      } else {
+        Alert.alert('Error', 'Failed to load account information: ' + error.message);
+      }
       return false;
     } finally {
-      setLoading(false);
+      if (!isUnmounted.current) {
+        setLoading(false);
+      }
     }
   };
 
   const handleSave = async () => {
     try {
       setSaving(true);
+      
+      // Make sure we have a user
+      if (!user || !user.id) {
+        throw new Error('User not authenticated. Please log in again.');
+      }
 
+      // Validate form data
+      if (!form.fullName.trim()) {
+        throw new Error('Please enter your full name');
+      }
+      
+      if (!form.email.trim()) {
+        throw new Error('Please enter your email address');
+      }
+      
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(form.email.trim())) {
+        throw new Error('Please enter a valid email address');
+      }
+
+      // Prepare the update payload with all form values
       const updatePayload = {
         fullName: form.fullName,
         email: form.email,
@@ -82,28 +249,66 @@ export default function AccountScreen() {
         birthLocation: form.birthLocation,
       };
 
-      console.log('Attempting to update profile with:', updatePayload);
+      console.log('Submitting form data for update:', JSON.stringify(updatePayload));
 
+      // Call the API to update the profile
       const response = await api.users.updateProfile(updatePayload);
 
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to update profile');
+      // Check for success flag or errors
+      if (!response.success || response.error) {
+        // Special handling for SMS provider errors
+        if (response.error?.message.includes('SMS provider')) {
+          throw new Error('Phone number update failed. The app is not configured for SMS verification yet, but your other changes have been saved.');
+        }
+        throw new Error(response.error?.message || 'Failed to update profile');
       }
 
-      const success = await loadUserData();
-      if (!success) throw new Error('Failed to verify profile update');
+      // Wait a moment for the update to propagate
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      try {
+        // Try to reload user data to confirm changes, but don't fail if this doesn't work
+        console.log('Update successful, attempting to reload user data to confirm changes...');
+        const success = await loadUserData();
+        
+        if (!success) {
+          console.log('Could not reload user data, but your changes have been saved.');
+        }
+      } catch (reloadError) {
+        // Don't throw an error here, just log it
+        console.warn('Could not verify profile update, but your changes have been saved:', reloadError);
+      }
 
-      Alert.alert('Success', 'Your profile has been updated successfully', [{ text: 'OK' }]);
+      // Show success message regardless of verification result
+      Alert.alert(
+        'Success', 
+        'Your profile has been updated successfully', 
+        [{ text: 'OK' }]
+      );
+      
+      // Update the form's original values to match the current values to prevent
+      // the modified state from persisting unnecessarily
+      setOriginalForm({ ...form });
     } catch (error) {
       console.error('Profile update error:', error);
-      Alert.alert(
-        'Update Failed',
-        error.message || 'Unable to save your changes. Please try again.',
-        [
-          { text: 'Retry', onPress: handleSave },
-          { text: 'Cancel', style: 'cancel' }
-        ]
-      );
+      
+      // Check if it's an authentication error
+      if (error.message && (error.message.includes('authentication') || error.message.includes('authenticated'))) {
+        Alert.alert(
+          'Authentication Error',
+          'Your session has expired. Please log in again.',
+          [{ text: 'OK', onPress: () => router.push('/login') }]
+        );
+      } else {
+        Alert.alert(
+          'Update Failed',
+          error.message || 'Unable to save your changes. Please try again.',
+          [
+            { text: 'Retry', onPress: handleSave },
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -128,12 +333,122 @@ export default function AccountScreen() {
     </TouchableOpacity>
   );
 
+  const renderFormField = (label: string, value: string, onChange: (text: string) => void, placeholder: string, fieldName: string, keyboardType = 'default') => (
+    <View style={styles.formGroup}>
+      <View style={styles.labelContainer}>
+        <Text style={styles.label}>{label}</Text>
+        <Text style={[
+          styles.currentValue,
+          // @ts-ignore
+          isFieldModified(fieldName) && styles.modifiedValue
+        ]}>
+          {value ? (isFieldModified(fieldName) ? 'Changed from: ' : 'Current: ') + (originalForm[fieldName] || 'Not set') : 'Not set'}
+        </Text>
+      </View>
+      <TextInput
+        style={[
+          styles.input,
+          // @ts-ignore
+          isFieldModified(fieldName) && styles.modifiedInput
+        ]}
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor="#94a3b8"
+        keyboardType={keyboardType}
+      />
+    </View>
+  );
+
+  const renderPhoneField = () => (
+    <View style={styles.formGroup}>
+      <View style={styles.labelContainer}>
+        <Text style={styles.label}>Phone Number</Text>
+        <Text style={[
+          styles.currentValue,
+          isFieldModified('phone') && styles.modifiedValue
+        ]}>
+          {form.phone ? (isFieldModified('phone') ? 'Changed from: ' : 'Current: ') + (originalForm.phone || 'Not set') : 'Not set'}
+        </Text>
+      </View>
+      <TextInput
+        style={[
+          styles.input, 
+          isFieldModified('phone') && styles.modifiedInput
+        ]}
+        value={form.phone}
+        onChangeText={(text) => setForm({ ...form, phone: text })}
+        placeholder="Enter your phone number"
+        placeholderTextColor="#94a3b8"
+        keyboardType="phone-pad"
+      />
+      <Text style={styles.phoneNote}>
+        Note: Phone number changes require SMS verification and may not apply immediately.
+      </Text>
+    </View>
+  );
+
+  // Add a function to handle logout and redirect to login
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      router.push('/login');
+    }
+  };
+
+  // If authentication has failed, show a login prompt instead of loading forever
+  if (authFailed) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Stack.Screen 
+          options={{
+            title: 'Account',
+            headerBackVisible: false,
+            headerLeft: () => (
+              <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={24} color="#121212" />
+              </TouchableOpacity>
+            ),
+          }} 
+        />
+        <View style={styles.authErrorContainer}>
+          <Text style={styles.authErrorTitle}>Authentication Required</Text>
+          <Text style={styles.authErrorText}>
+            You need to be logged in to access your account settings.
+          </Text>
+          <TouchableOpacity 
+            style={styles.authErrorButton} 
+            onPress={() => router.push('/login')}
+          >
+            <Text style={styles.authErrorButtonText}>Log In</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6366f1" />
-        <Text style={styles.loadingText}>Loading account information...</Text>
-      </View>
+      <SafeAreaView style={styles.container}>
+        <Stack.Screen 
+          options={{
+            title: 'Account',
+            headerBackVisible: false,
+            headerLeft: () => (
+              <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={24} color="#121212" />
+              </TouchableOpacity>
+            ),
+          }} 
+        />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.loadingText}>Loading account information...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -157,52 +472,47 @@ export default function AccountScreen() {
       >
         <View style={styles.header}>
           <View>
-            
             <Text style={styles.subtitle}>Manage your account details</Text>
           </View>
         </View>
 
         <View style={styles.section}>
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              value={form.fullName}
-              onChangeText={(text) => setForm({ ...form, fullName: text })}
-              placeholder="Enter your full name"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
+          {renderFormField(
+            'Full Name', 
+            form.fullName,
+            (text) => setForm({ ...form, fullName: text }),
+            'Enter your full name',
+            'fullName'
+          )}
+
+          {renderFormField(
+            'Email Address', 
+            form.email,
+            (text) => setForm({ ...form, email: text }),
+            'Enter your email',
+            'email',
+            'email-address'
+          )}
+
+          {renderPhoneField()}
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Email Address</Text>
-            <TextInput
-              style={styles.input}
-              value={form.email}
-              onChangeText={(text) => setForm({ ...form, email: text })}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              placeholder="Enter your email"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Phone Number</Text>
-            <TextInput
-              style={styles.input}
-              value={form.phone}
-              onChangeText={(text) => setForm({ ...form, phone: text })}
-              keyboardType="phone-pad"
-              placeholder="Enter your phone number"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Birth Date</Text>
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Birth Date</Text>
+              <Text style={[
+                styles.currentValue,
+                isFieldModified('birthDate') && styles.modifiedValue
+              ]}>
+                {form.birthDate ? 
+                  (isFieldModified('birthDate') ? 'Changed from: ' : 'Current: ') + 
+                  formatDate(originalForm.birthDate) : 'Not set'}
+              </Text>
+            </View>
             {Platform.OS === 'web' ? (
-              <View style={styles.webDatePickerContainer}>
+              <View style={[
+                styles.webDatePickerContainer,
+                isFieldModified('birthDate') && styles.modifiedInput
+              ]}>
                 <input
                   type="date"
                   value={form.birthDate.toISOString().split('T')[0]}
@@ -215,9 +525,19 @@ export default function AccountScreen() {
               </View>
             ) : (
               <>
-                <TouchableOpacity style={styles.datePickerButton} onPress={() => setShowDatePicker(true)}>
+                <TouchableOpacity 
+                  style={[
+                    styles.datePickerButton, 
+                    isFieldModified('birthDate') && styles.modifiedInput
+                  ]} 
+                  onPress={() => setShowDatePicker(true)}
+                >
                   <Text style={styles.datePickerButtonText}>{formatDate(form.birthDate)}</Text>
-                  <Ionicons name="calendar" size={20} color="#6366f1" />
+                  <Ionicons 
+                    name="calendar" 
+                    size={20} 
+                    color={isFieldModified('birthDate') ? "#f59e0b" : "#6366f1"} 
+                  />
                 </TouchableOpacity>
                 {showDatePicker && (
                   <DateTimePicker
@@ -244,9 +564,22 @@ export default function AccountScreen() {
           </View>
 
           <View style={styles.formGroup}>
-            <Text style={styles.label}>Birth Time</Text>
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Birth Time</Text>
+              <Text style={[
+                styles.currentValue,
+                isFieldModified('birthTime') && styles.modifiedValue
+              ]}>
+                {form.birthTime ? 
+                  (isFieldModified('birthTime') ? 'Changed from: ' : 'Current: ') + 
+                  formatTime(originalForm.birthTime) : 'Not set'}
+              </Text>
+            </View>
             {Platform.OS === 'web' ? (
-              <View style={styles.webDatePickerContainer}>
+              <View style={[
+                styles.webDatePickerContainer,
+                isFieldModified('birthTime') && styles.modifiedInput
+              ]}>
                 <input
                   type="time"
                   value={form.birthTime.toTimeString().slice(0, 5)}
@@ -263,9 +596,19 @@ export default function AccountScreen() {
               </View>
             ) : (
               <>
-                <TouchableOpacity style={styles.datePickerButton} onPress={() => setShowTimePicker(true)}>
+                <TouchableOpacity 
+                  style={[
+                    styles.datePickerButton, 
+                    isFieldModified('birthTime') && styles.modifiedInput
+                  ]} 
+                  onPress={() => setShowTimePicker(true)}
+                >
                   <Text style={styles.datePickerButtonText}>{formatTime(form.birthTime)}</Text>
-                  <Ionicons name="time" size={20} color="#6366f1" />
+                  <Ionicons 
+                    name="time" 
+                    size={20} 
+                    color={isFieldModified('birthTime') ? "#f59e0b" : "#6366f1"} 
+                  />
                 </TouchableOpacity>
                 {showTimePicker && (
                   <DateTimePicker
@@ -290,32 +633,36 @@ export default function AccountScreen() {
             )}
           </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Birth Location</Text>
-            <TextInput
-              style={styles.input}
-              value={form.birthLocation}
-              onChangeText={(text) => setForm({ ...form, birthLocation: text })}
-              placeholder="City, Country"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
+          {renderFormField(
+            'Birth Location', 
+            form.birthLocation,
+            (text) => setForm({ ...form, birthLocation: text }),
+            'City, Country',
+            'birthLocation'
+          )}
         </View>
 
-        <TouchableOpacity
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <>
-            <Text style={styles.saveButtonText}>Save Changes</Text>
-              <Ionicons name="save-outline" size={20} color="#ffffff" style={styles.saveButtonIcon} />
-            </>
-          )}
-        </TouchableOpacity>
+        {(isFieldModified('fullName') || isFieldModified('email') || isFieldModified('phone') || 
+          isFieldModified('birthDate') || isFieldModified('birthTime') || isFieldModified('birthLocation')) ? (
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <>
+                <Text style={styles.saveButtonText}>Save Changes</Text>
+                <Ionicons name="save-outline" size={20} color="#ffffff" style={styles.saveButtonIcon} />
+              </>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.noChangesContainer}>
+            <Text style={styles.noChangesText}>Make changes to save your profile</Text>
+          </View>
+        )}
 
         <View style={styles.infoSection}>
           <Text style={styles.infoText}>Please ensure all information is accurate before saving.</Text>
@@ -521,5 +868,81 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 8,
+  },
+  labelContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  currentValue: {
+    fontSize: 12,
+    color: '#6366f1',
+    fontStyle: 'italic',
+    fontWeight: '500',
+  },
+  phoneNote: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  modifiedValue: {
+    color: '#f59e0b',
+    fontWeight: '600',
+  },
+  modifiedInput: {
+    borderColor: '#f59e0b',
+    borderWidth: 2,
+    backgroundColor: '#fffbeb',
+  },
+  noChangesContainer: {
+    padding: 16,
+    marginHorizontal: 16,
+    marginVertical: 16,
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+  },
+  noChangesText: {
+    color: '#64748b',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  authErrorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8fafc',
+  },
+  authErrorTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginBottom: 12,
+  },
+  authErrorText: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  authErrorButton: {
+    backgroundColor: '#6366f1',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginTop: 16,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  authErrorButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

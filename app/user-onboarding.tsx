@@ -28,6 +28,7 @@ export default function UserOnboardingScreen() {
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const insets = useSafeAreaInsets();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Step 1: Who's the coaching for?
   const [coachingFor, setCoachingFor] = useState<'myself' | 'child' | 'other' | null>(null);
@@ -71,6 +72,7 @@ export default function UserOnboardingScreen() {
     
     if (currentStep > 1) {
       setCurrentStep(prev => prev - 1);
+      setErrorMessage(null);
     } else {
       router.back();
     }
@@ -87,28 +89,101 @@ export default function UserOnboardingScreen() {
   const handleNext = async () => {
     if (loading) return;
 
-    if (currentStep < 10) {
+    if (currentStep < 13) {
       // Validate current step
       let canProceed = true;
       
-      // Add step validation as needed
+      // Simplified validation for each step
       switch (currentStep) {
         case 1:
-          canProceed = coachingFor !== null;
+          if (coachingFor === null) {
+            setErrorMessage("Please select who this coaching is for");
+            canProceed = false;
+          }
           break;
         case 2:
-          canProceed = healthGoals.length > 0 && primaryGoal !== null;
+          if (healthGoals.length === 0) {
+            setErrorMessage("Please select at least one health goal");
+            canProceed = false;
+          }
           break;
-        // Add other validations as needed
+        case 3:
+          if (primaryGoal === null) {
+            setErrorMessage("Please select your primary goal");
+            canProceed = false;
+          }
+          break;
+        case 4:
+          if (workingWithDoctor === null) {
+            setErrorMessage("Please select if you're working with a doctor");
+            canProceed = false;
+          }
+          break;
+        case 5:
+          if (biggestChallenge === null) {
+            setErrorMessage("Please select your biggest challenge");
+            canProceed = false;
+          }
+          break;
+        case 6:
+          if (!typicalDay.trim()) {
+            setErrorMessage("Please describe your typical day");
+            canProceed = false;
+          }
+          break;
+        case 7:
+          if (activityLevel === null) {
+            setErrorMessage("Please select your activity level");
+            canProceed = false;
+          }
+          break;
+        case 8:
+          if (coachingTypes.length === 0) {
+            setErrorMessage("Please select at least one coaching type");
+            canProceed = false;
+          }
+          break;
+        case 9:
+          if (supportFrequency === null) {
+            setErrorMessage("Please select your preferred support frequency");
+            canProceed = false;
+          }
+          break;
+        case 10:
+          if (trackingItems.length === 0 || wantsReminders === null) {
+            setErrorMessage("Please complete all fields");
+            canProceed = false;
+          }
+          break;
+        case 11:
+          if (communicationStyle === null) {
+            setErrorMessage("Please select your preferred coaching style");
+            canProceed = false;
+          }
+          break;
+        case 12:
+          if (!motivation.trim()) {
+            setErrorMessage("Please tell us what motivates you");
+            canProceed = false;
+          }
+          break;
+        case 13:
+          if (budget === null) {
+            setErrorMessage("Please select your budget");
+            canProceed = false;
+          }
+          break;
       }
       
       if (canProceed) {
         setCurrentStep(prev => prev + 1);
+        setErrorMessage(null);
       }
     } else {
       // Submit onboarding data
       try {
         setLoading(true);
+        setErrorMessage(null);
         
         // Save personalization data to user profile
         // This would typically be saved to a database
@@ -157,6 +232,7 @@ export default function UserOnboardingScreen() {
         }, 500);
       } catch (error) {
         console.error('Error completing onboarding:', error);
+        setErrorMessage("An unexpected error occurred. Please try again.");
         Alert.alert('Error', 'An unexpected error occurred');
       } finally {
         setLoading(false);
@@ -166,16 +242,19 @@ export default function UserOnboardingScreen() {
 
   const renderStepTitle = () => {
     switch (currentStep) {
-      case 1: return "Who's the coaching for?";
-      case 2: return "Your Primary Health Goals";
-      case 3: return "Health Background";
-      case 4: return "Your Biggest Challenges";
-      case 5: return "Your Lifestyle & Routine";
-      case 6: return "Coaching Format Preferences";
-      case 7: return "Tracking & Accountability";
-      case 8: return "Coaching Style & AI Tone";
-      case 9: return "Personalization";
-      case 10: return "Budget";
+      case 1: return "Who is this for?";
+      case 2: return "Your Health Goals";
+      case 3: return "Your Primary Goal";
+      case 4: return "Health Background";
+      case 5: return "Your Biggest Challenge";
+      case 6: return "Daily Lifestyle";
+      case 7: return "Activity Level";
+      case 8: return "Coaching Preferences";
+      case 9: return "Support Frequency";
+      case 10: return "Tracking & Accountability";
+      case 11: return "Coaching Style";
+      case 12: return "What Motivates You";
+      case 13: return "Budget";
       default: return "";
     }
   };
@@ -185,27 +264,51 @@ export default function UserOnboardingScreen() {
       case 1:
         return (
           <View style={styles.stepContent}>
-            <Text style={styles.question}>Who are you looking to get health coaching for?</Text>
+            <Text style={styles.question}>Who are you seeking health coaching for?</Text>
             
             <TouchableOpacity 
-              style={[styles.option, coachingFor === 'myself' && styles.selectedOption]} 
+              style={[styles.optionCard, coachingFor === 'myself' && styles.selectedOptionCard]} 
               onPress={() => setCoachingFor('myself')}
             >
-              <Text style={styles.optionText}>Myself</Text>
+              <Ionicons 
+                name={coachingFor === 'myself' ? "checkmark-circle" : "person"} 
+                size={24} 
+                color={coachingFor === 'myself' ? "#6366F1" : "#64748B"} 
+                style={styles.optionIcon}
+              />
+              <Text style={[styles.optionText, coachingFor === 'myself' && styles.selectedOptionText]}>
+                Myself
+              </Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={[styles.option, coachingFor === 'child' && styles.selectedOption]} 
+              style={[styles.optionCard, coachingFor === 'child' && styles.selectedOptionCard]} 
               onPress={() => setCoachingFor('child')}
             >
-              <Text style={styles.optionText}>My child</Text>
+              <Ionicons 
+                name={coachingFor === 'child' ? "checkmark-circle" : "people"} 
+                size={24} 
+                color={coachingFor === 'child' ? "#6366F1" : "#64748B"} 
+                style={styles.optionIcon}
+              />
+              <Text style={[styles.optionText, coachingFor === 'child' && styles.selectedOptionText]}>
+                My child
+              </Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={[styles.option, coachingFor === 'other' && styles.selectedOption]} 
+              style={[styles.optionCard, coachingFor === 'other' && styles.selectedOptionCard]} 
               onPress={() => setCoachingFor('other')}
             >
-              <Text style={styles.optionText}>Someone else</Text>
+              <Ionicons 
+                name={coachingFor === 'other' ? "checkmark-circle" : "person-add"} 
+                size={24} 
+                color={coachingFor === 'other' ? "#6366F1" : "#64748B"} 
+                style={styles.optionIcon}
+              />
+              <Text style={[styles.optionText, coachingFor === 'other' && styles.selectedOptionText]}>
+                Someone else
+              </Text>
             </TouchableOpacity>
           </View>
         );
@@ -213,48 +316,75 @@ export default function UserOnboardingScreen() {
       case 2:
         return (
           <View style={styles.stepContent}>
-            <Text style={styles.question}>What are your main goals right now?</Text>
-            <Text style={styles.subtext}>Select all that apply</Text>
+            <Text style={styles.question}>What are your main health goals?</Text>
+            <Text style={styles.instructions}>Select all that apply</Text>
             
-            {[
-              'Lose weight',
-              'Gain muscle',
-              'Eat healthier',
-              'Improve sleep',
-              'Boost energy',
-              'Manage stress/anxiety',
-              'Build consistent habits',
-              'Manage a medical condition',
-              'Improve overall wellness'
-            ].map(goal => (
-              <TouchableOpacity 
-                key={goal}
-                style={[styles.option, healthGoals.includes(goal) && styles.selectedOption]} 
-                onPress={() => toggleArrayItem(healthGoals, setHealthGoals, goal)}
-              >
-                <Text style={styles.optionText}>{goal}</Text>
-              </TouchableOpacity>
-            ))}
+            <View style={styles.optionsGrid}>
+              {[
+                { id: 'weight', label: 'Lose weight', icon: 'scale' },
+                { id: 'muscle', label: 'Gain muscle', icon: 'barbell' },
+                { id: 'nutrition', label: 'Eat healthier', icon: 'nutrition' },
+                { id: 'sleep', label: 'Improve sleep', icon: 'bed' },
+                { id: 'energy', label: 'Boost energy', icon: 'battery-charging' },
+                { id: 'stress', label: 'Manage stress', icon: 'heart' },
+                { id: 'habits', label: 'Build habits', icon: 'calendar' },
+                { id: 'medical', label: 'Manage condition', icon: 'medical' },
+                { id: 'wellness', label: 'Overall wellness', icon: 'flower' }
+              ].map(goal => (
+                <TouchableOpacity 
+                  key={goal.id}
+                  style={[
+                    styles.gridOption, 
+                    healthGoals.includes(goal.label) && styles.selectedGridOption
+                  ]} 
+                  onPress={() => toggleArrayItem(healthGoals, setHealthGoals, goal.label)}
+                >
+                  <Ionicons 
+                    name={healthGoals.includes(goal.label) ? "checkmark-circle" : goal.icon} 
+                    size={24} 
+                    color={healthGoals.includes(goal.label) ? "#6366F1" : "#64748B"} 
+                  />
+                  <Text style={[
+                    styles.gridOptionText,
+                    healthGoals.includes(goal.label) && styles.selectedGridOptionText
+                  ]}>
+                    {goal.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        );
+        
+      case 3:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.question}>Which is your #1 priority right now?</Text>
             
-            {healthGoals.length > 0 && (
-              <View style={styles.followupSection}>
-                <Text style={styles.question}>Of those, which is your #1 priority right now?</Text>
-                
+            {healthGoals.length > 0 ? (
+              <View style={styles.priorityOptions}>
                 {healthGoals.map(goal => (
                   <TouchableOpacity 
                     key={goal}
-                    style={[styles.option, primaryGoal === goal && styles.selectedOption]} 
+                    style={[styles.priorityOption, primaryGoal === goal && styles.selectedPriorityOption]} 
                     onPress={() => setPrimaryGoal(goal)}
                   >
-                    <Text style={styles.optionText}>{goal}</Text>
+                    <View style={styles.priorityRadio}>
+                      {primaryGoal === goal && <View style={styles.priorityRadioSelected} />}
+                    </View>
+                    <Text style={styles.priorityText}>{goal}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+            ) : (
+              <Text style={styles.noOptions}>
+                Please go back and select at least one health goal first.
+              </Text>
             )}
           </View>
         );
-      
-      case 3:
+        
+      case 4:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>Do you have any health conditions or injuries?</Text>
@@ -293,7 +423,7 @@ export default function UserOnboardingScreen() {
           </View>
         );
       
-      case 4:
+      case 5:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What's been your biggest challenge with staying healthy?</Text>
@@ -327,7 +457,7 @@ export default function UserOnboardingScreen() {
           </View>
         );
       
-      case 5:
+      case 6:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What does a typical day look like for you?</Text>
@@ -340,8 +470,13 @@ export default function UserOnboardingScreen() {
               onChangeText={setTypicalDay}
               multiline
             />
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>How active are you currently?</Text>
+          </View>
+        );
+      
+      case 7:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.question}>How active are you currently?</Text>
             
             <TouchableOpacity 
               style={[styles.option, activityLevel === 'very_active' && styles.selectedOption]} 
@@ -373,7 +508,7 @@ export default function UserOnboardingScreen() {
           </View>
         );
       
-      case 6:
+      case 8:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What type of coaching are you open to?</Text>
@@ -403,8 +538,13 @@ export default function UserOnboardingScreen() {
               value={location}
               onChangeText={setLocation}
             />
-            
-            <Text style={[styles.question, { marginTop: 20 }]}>How often would you like support?</Text>
+          </View>
+        );
+      
+      case 9:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.question}>How often would you like support?</Text>
             
             <TouchableOpacity 
               style={[styles.option, supportFrequency === 'daily' && styles.selectedOption]} 
@@ -436,7 +576,7 @@ export default function UserOnboardingScreen() {
           </View>
         );
       
-      case 7:
+      case 10:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What would you like help tracking?</Text>
@@ -485,7 +625,7 @@ export default function UserOnboardingScreen() {
           </View>
         );
       
-      case 8:
+      case 11:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>How would you like your coach (human or AI) to communicate with you?</Text>
@@ -527,7 +667,7 @@ export default function UserOnboardingScreen() {
           </View>
         );
       
-      case 9:
+      case 12:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What motivates you to improve your health right now?</Text>
@@ -543,7 +683,7 @@ export default function UserOnboardingScreen() {
           </View>
         );
       
-      case 10:
+      case 13:
         return (
           <View style={styles.stepContent}>
             <Text style={styles.question}>What's your ideal monthly budget for health coaching?</Text>
@@ -591,8 +731,8 @@ export default function UserOnboardingScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar style="dark" />
       
       <LinearGradient
         colors={['#5E72E4', '#7F90FF']}
@@ -600,7 +740,7 @@ export default function UserOnboardingScreen() {
         end={{ x: 1, y: 1 }}
         style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}
       >
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton} disabled={loading}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Your Profile</Text>
@@ -608,16 +748,21 @@ export default function UserOnboardingScreen() {
       
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
+        style={styles.keyboardAvoidingView}
       >
         <View style={styles.header}>
-          <View style={styles.progress}>
-            <View style={[styles.progressBar, { width: `${(currentStep / 10) * 100}%` }]} />
+          <View style={styles.progressBarContainer}>
+            <View style={[styles.progressBar, { width: `${(currentStep / 13) * 100}%` }]} />
           </View>
-          <Text style={styles.stepIndicator}>{currentStep}/10</Text>
+          <Text style={styles.stepCounter}>Step {currentStep}/13</Text>
         </View>
         
-        <Text style={styles.stepTitle}>{renderStepTitle()}</Text>
+        {errorMessage && (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={20} color="#EF4444" />
+            <Text style={styles.errorText}>{errorMessage}</Text>
+          </View>
+        )}
         
         <ScrollView 
           contentContainerStyle={[
@@ -627,20 +772,22 @@ export default function UserOnboardingScreen() {
           showsVerticalScrollIndicator={false}
           bounces={true}
         >
+          <Text style={styles.stepTitle}>{renderStepTitle()}</Text>
+          
           {renderStepContent()}
         </ScrollView>
         
         <View style={styles.footer}>
           <TouchableOpacity
-            style={styles.nextButton}
+            style={[styles.nextButton, loading && styles.disabledButton]}
             onPress={handleNext}
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#FFF" />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.nextButtonText}>
-                {currentStep < 10 ? 'Continue' : 'Complete'}
+                {currentStep === 13 ? 'Complete' : 'Continue'}
               </Text>
             )}
           </TouchableOpacity>
@@ -665,7 +812,7 @@ const styles = StyleSheet.create({
   backButton: {
     marginRight: 10,
   },
-  progress: {
+  progressBarContainer: {
     flex: 1,
     height: 6,
     backgroundColor: '#eee',
@@ -677,7 +824,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#5E72E4',
     borderRadius: 3,
   },
-  stepIndicator: {
+  stepCounter: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
@@ -755,5 +902,128 @@ const styles = StyleSheet.create({
     marginVertical: 16,
     paddingHorizontal: 16,
     color: '#fff',
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  selectedOptionCard: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  optionIcon: {
+    marginRight: 12,
+  },
+  selectedOptionText: {
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+  optionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+  },
+  gridOption: {
+    width: '31%',
+    margin: '1%',
+    padding: 12,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  selectedGridOption: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  gridOptionText: {
+    fontSize: 12,
+    color: '#1E293B',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  selectedGridOptionText: {
+    color: '#6366F1',
+    fontWeight: '500',
+  },
+  priorityOptions: {
+    marginTop: 8,
+  },
+  priorityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  selectedPriorityOption: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  priorityRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  priorityRadioSelected: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#6366F1',
+  },
+  priorityText: {
+    fontSize: 16,
+    color: '#1E293B',
+  },
+  noOptions: {
+    fontSize: 16,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 20,
+    fontStyle: 'italic',
   },
 }); 

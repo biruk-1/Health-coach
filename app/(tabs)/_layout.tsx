@@ -1,25 +1,16 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, View, Text, StyleSheet, Dimensions } from 'react-native';
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { useRouter } from 'expo-router';
 
 const { width, height } = Dimensions.get('window');
 
-export default function TabLayout() {
+// Define the TabLayout as a regular function component
+function TabLayout() {
   const { user } = useAuth();
-  const router = useRouter();
   
-  // Ensure user is authenticated for tabs section
-  useEffect(() => {
-    if (!user) {
-      console.log('Unauthorized access to tabs, redirecting to welcome page');
-      router.replace('/');
-    }
-  }, [user, router]);
-
-  // If not authenticated, don't render tabs content
+  // Don't render tabs at all if there's no authenticated user
   if (!user) {
     return null;
   }
@@ -57,14 +48,16 @@ export default function TabLayout() {
         },
         tabBarItemStyle: {
           padding: 5,
-          flex: 1,
+          
         },
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '600',
           marginBottom: Platform.OS === 'ios' ? 5 : 3,
         },
-      }}>
+      }}
+      initialRouteName="index"
+    >
       <Tabs.Screen
         name="index"
         options={{
@@ -140,3 +133,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+// Export the function directly instead of the memoized component
+export default TabLayout;
