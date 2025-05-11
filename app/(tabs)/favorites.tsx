@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import { useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ImageBackground, ActivityIndicator, Platform, StatusBar, SafeAreaView, RefreshControl, Alert } from 'react-native';
 import { useFavorites } from '../../context/FavoritesContext';
@@ -118,7 +121,7 @@ export default function FavoritesScreen() {
         <Text style={styles.emptyText}>Please log in to view your favorites</Text>
         <TouchableOpacity 
           style={styles.loginButton}
-          onPress={() => router.push('/login')}
+          onPress={() => router.navigate('/login')}
         >
           <Text style={styles.loginButtonText}>Log In</Text>
         </TouchableOpacity>
@@ -157,7 +160,7 @@ export default function FavoritesScreen() {
         <Text style={styles.emptyText}>No favorites yet. Start adding your favorite coaches!</Text>
             <TouchableOpacity 
               style={styles.browseButton}
-              onPress={() => router.push('/')}
+              onPress={() => router.navigate('/')}
             >
               <Text style={styles.browseButtonText}>Browse Coaches</Text>
             </TouchableOpacity>
@@ -203,7 +206,7 @@ export default function FavoritesScreen() {
             style={styles.card}
             onPress={() => {
                 if (item && item.id) {
-                  router.push(`/${item.id}`);
+                  router.navigate(`/${item.id}`);
                 } else {
                   console.error('Invalid coach data:', item);
                   Alert.alert('Error', 'Could not open coach details');

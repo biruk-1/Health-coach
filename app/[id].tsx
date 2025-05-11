@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity, SafeAreaView, Platform, StatusBar, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Image, TouchableOpacity, SafeAreaView, Platform, StatusBar, ActivityIndicator, Alert, TextInput, InteractionManager } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -8,12 +8,16 @@ import { useAuth } from '../context/AuthContext';
 import { usePurchases } from '../context/PurchaseContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { useAppNavigation } from '../lib/navigation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { navigate } from '../lib/navigation';
 
 export default function CoachDetailScreen() {
-  const { id } = useLocalSearchParams();
+  const { navigateToAddFunds } = useAppNavigation();
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const id = params.id as string;
   const { user } = useAuth();
-  const { balance, refreshBalance } = usePurchases();
+  const { balance, refreshBalance, setBalance } = usePurchases();
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
   const [coach, setCoach] = useState<HealthCoach | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,10 +26,56 @@ export default function CoachDetailScreen() {
   const [isSending, setIsSending] = useState(false);
   const [favorited, setFavorited] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
-  const CREDITS_PER_MESSAGE = 2; // Cost per message
-  const navigation = useAppNavigation();
+  const CREDITS_PER_MESSAGE = 1;
+  
+  // Safety check for invalid ID parameter
+  useEffect(() => {
+    if (!id) {
+      console.error('ID parameter is missing or invalid');
+      setError('Invalid coach ID. Please try again.');
+      setLoading(false);
+    }
+  }, [id]);
 
-  // Check if coach is in favorites
+  // Improved function to set navigation locks safely for first-time users
+  const setNavigationLocks = async () => {
+    try {
+      // For first time users, we can simplify this process
+      // Just make sure we clear any existing flags that might interfere
+      await Promise.all([
+        AsyncStorage.removeItem('navigating_to_cosmic_ai'),
+        AsyncStorage.removeItem('navigating_to_add_funds'),
+        AsyncStorage.removeItem('cosmic_ai_protection_started_at'),
+        AsyncStorage.removeItem('add_funds_protection_started_at')
+      ]);
+      
+      console.log('CoachDetailScreen: Navigation locks cleared for clean access');
+    } catch (error) {
+      console.error('CoachDetailScreen: Error handling navigation locks:', error);
+      // No need to throw - we'll continue even if this fails
+    }
+  };
+  
+  // Improved setup for first-time users
+  useEffect(() => {
+    // Clean up any existing locks to prevent issues
+    setNavigationLocks();
+    
+    // No need for InteractionManager - simplify the flow
+    
+    // Clean up on unmount
+    return () => {
+      console.log('CoachDetailScreen unmounting, clearing any navigation flags');
+      AsyncStorage.multiRemove([
+        'navigating_to_detail',
+        'detail_protection_started_at',
+        'detail_flag_set_at'
+      ]).catch(error => 
+        console.error('CoachDetailScreen: Failed to clear flags:', error)
+      );
+    };
+  }, []);
+
   useEffect(() => {
     if (coach) {
       const isFav = isFavorite(coach.id);
@@ -34,70 +84,54 @@ export default function CoachDetailScreen() {
     }
   }, [coach, isFavorite]);
 
-  // Optimized coach data loading with caching and retry logic
   const loadCoachDetails = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       console.log('Loading coach details for ID:', id);
-      
-      if (!id) {
-        throw new Error('No coach ID provided');
-      }
 
-      // Make sure we have a clean string ID
+      if (!id) throw new Error('No coach ID provided');
+
       const coachIdString = id.toString().trim();
       console.log('Fetching coach with cleaned ID:', coachIdString);
-      
-      // Try to fetch the coach with 2 attempts, with better timeout handling
+
       let coachData = null;
       let attempts = 0;
-      
+
       while (!coachData && attempts < 3) {
         attempts++;
         console.log(`Attempt ${attempts} to fetch coach with ID: ${coachIdString}`);
-        
+
         try {
-          // Set a timeout promise to avoid long hanging requests
           const timeoutPromise = new Promise<null>((_, reject) => {
             setTimeout(() => reject(new Error('Request timeout')), 3000);
           });
-          
-          // Race between the actual fetch and the timeout
-          coachData = await Promise.race([
-            getHealthCoachById(coachIdString),
-            timeoutPromise
-          ]);
-          
+
+          coachData = await Promise.race([getHealthCoachById(coachIdString), timeoutPromise]);
+
           if (coachData) break;
         } catch (fetchError) {
           console.log(`Attempt ${attempts} failed:`, fetchError);
-          
+
           if (attempts < 3) {
-            // Exponential backoff
             const delay = 300 * Math.pow(2, attempts - 1);
             console.log(`Waiting ${delay}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            await new Promise((resolve) => setTimeout(resolve, delay));
           }
         }
       }
-      
+
       if (!coachData) {
         console.error('Coach not found after multiple attempts for ID:', coachIdString);
         throw new Error('Coach not found. The coach may have been removed or is temporarily unavailable.');
       }
-      
+
       console.log('Coach data loaded successfully:', coachData.name);
       setCoach(coachData);
-    } catch (err) {
-      console.error('Error loading coach:', err);
-      const errorMessage = err.message || 'Failed to load coach details';
+    } catch (error) {
+      console.error('Error loading coach:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load coach details';
       setError(errorMessage);
-      
-      // Log more details about the error for debugging
-      if (err.response) {
-        console.error('API Error Response:', err.response);
-      }
     } finally {
       setLoading(false);
     }
@@ -108,67 +142,78 @@ export default function CoachDetailScreen() {
     refreshBalance();
   }, [loadCoachDetails, refreshBalance]);
 
+  // Improved function to safely handle navigation without locks
+  const handleBackPress = useCallback(() => {
+    console.log('Navigating back to home from coach detail');
+    router.replace('/(tabs)');
+  }, [router]);
+  
+  const handleAddFunds = useCallback(() => {
+    console.log('Navigating to add funds from coach detail');
+    router.push('/settings/add-funds');
+  }, [router]);
+
   const handleToggleFavorite = async () => {
     if (!coach) return;
 
     try {
-      // Disable interaction during favorite operation
       setLoading(true);
-      
+
       if (favorited) {
         console.log(`Removing coach from favorites: ${coach.name} (${coach.id})`);
         await removeFavorite(coach.id);
         setFavorited(false);
-        Alert.alert("Removed", `${coach.name} has been removed from your favorites`);
+        Alert.alert('Removed', `${coach.name} has been removed from your favorites`);
       } else {
         console.log(`Adding coach to favorites: ${coach.name} (${coach.id})`);
         await addFavorite(coach);
         setFavorited(true);
-        Alert.alert("Added", `${coach.name} has been added to your favorites`);
+        Alert.alert('Added', `${coach.name} has been added to your favorites`);
       }
     } catch (error) {
       console.error('Error toggling favorite status:', error);
-      Alert.alert("Error", "There was a problem updating your favorites. Please try again later.");
+      Alert.alert('Error', 'There was a problem updating your favorites. Please try again later.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleSendMessage = () => {
-    if (!message.trim()) {
-      return;
-    }
+    if (!message.trim()) return;
 
-    // Check if user has enough credits
     if (balance < CREDITS_PER_MESSAGE) {
       Alert.alert(
-        "Insufficient Credits",
+        'Insufficient Credits',
         `You need ${CREDITS_PER_MESSAGE} credits to send a message. Would you like to purchase more?`,
         [
-          { text: "Cancel", style: "cancel" },
-          { 
-            text: "Add Credits", 
-            onPress: () => {
-              // Use the safe navigation utility
-              navigation.navigateToAddFunds(id.toString());
-            } 
-          }
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Add Credits', onPress: handleAddFunds },
         ]
       );
       return;
     }
 
     setIsSending(true);
-    
-    // Simulate sending message
-    setTimeout(() => {
-      Alert.alert("Message Sent", `Your message has been sent to ${coach?.name}. ${CREDITS_PER_MESSAGE} credits have been deducted from your balance.`);
-      setMessage('');
-      setIsSending(false);
-      refreshBalance();
-    }, 1000);
+
+    // Deduct credits before sending message
+    const newBalance = balance - CREDITS_PER_MESSAGE;
+    AsyncStorage.setItem('credits_balance', newBalance.toString())
+      .then(() => {
+        setBalance(newBalance);
+        
+        setTimeout(() => {
+          Alert.alert('Message Sent', `Your message has been sent to ${coach?.name}. ${CREDITS_PER_MESSAGE} credits have been deducted from your balance.`);
+          setMessage('');
+          setIsSending(false);
+        }, 1000);
+      })
+      .catch(err => {
+        console.error('Error updating credit balance:', err);
+        setIsSending(false);
+        Alert.alert('Error', 'There was a problem processing your credits. Please try again.');
+      });
   };
-  
+
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -183,10 +228,7 @@ export default function CoachDetailScreen() {
       <SafeAreaView style={styles.errorContainer}>
         <Ionicons name="alert-circle" size={64} color="#ef4444" />
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
       </SafeAreaView>
@@ -198,10 +240,7 @@ export default function CoachDetailScreen() {
       <SafeAreaView style={styles.errorContainer}>
         <Ionicons name="person-outline" size={64} color="#94a3b8" />
         <Text style={styles.errorText}>Coach not found</Text>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
       </SafeAreaView>
@@ -210,54 +249,52 @@ export default function CoachDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ 
-        title: coach.name,
-        headerShown: true,
-        headerTintColor: '#ffffff',
-        headerBackTitle: 'Back',
-        headerStyle: {
-          backgroundColor: '#6366f1',
-        },
-        headerShadowVisible: false
-      }} />
-      
-      <ScrollView 
-        style={styles.container} 
-        contentContainerStyle={styles.contentContainer}
-        ref={scrollViewRef}
-      >
-        {/* Hero Image and Gradient Overlay */}
+      <Stack.Screen
+        options={{
+          title: coach.name,
+          headerShown: true,
+          headerTintColor: '#ffffff',
+          headerBackTitle: 'Back',
+          headerStyle: {
+            backgroundColor: '#6366f1',
+          },
+          headerShadowVisible: false,
+          headerLeft: () => (
+            <TouchableOpacity onPress={handleBackPress} style={{ marginLeft: 8, padding: 8 }}>
+              <Ionicons name="arrow-back" size={24} color="#ffffff" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} ref={scrollViewRef}>
         <View style={styles.heroContainer}>
-          <Image 
-            source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }} 
-            style={styles.heroImage} 
+          <Image
+            source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }}
+            style={styles.heroImage}
           />
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.heroGradient}
-          >
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.7)']} style={styles.heroGradient}>
             <View style={styles.profileContainer}>
-              <Image 
-                source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }} 
-                style={styles.profileImage} 
+              <Image
+                source={{ uri: coach.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop' }}
+                style={styles.profileImage}
               />
-              
               <View style={styles.nameContainer}>
                 <View style={styles.nameRow}>
                   <Text style={styles.name}>{coach.name}</Text>
                   {coach.is_verified && (
                     <Ionicons name="checkmark-circle" size={24} color="#6366f1" style={styles.verifiedIcon} />
                   )}
-              </View>
+                </View>
                 <Text style={styles.specialty}>{coach.specialty}</Text>
                 <View style={styles.ratingContainer}>
                   <Ionicons name="star" size={16} color="#fbbf24" />
                   <Text style={styles.rating}>
-                    {typeof coach.rating === 'number' 
-                      ? coach.rating.toFixed(1) 
-                      : typeof coach.rating === 'string' 
-                        ? parseFloat(coach.rating).toFixed(1) 
-                        : '5.0'}
+                    {typeof coach.rating === 'number'
+                      ? coach.rating.toFixed(1)
+                      : typeof coach.rating === 'string'
+                      ? parseFloat(coach.rating).toFixed(1)
+                      : '5.0'}
                   </Text>
                   <Text style={styles.reviews}>({coach.reviews_count || 0} reviews)</Text>
                 </View>
@@ -265,28 +302,17 @@ export default function CoachDetailScreen() {
             </View>
           </LinearGradient>
         </View>
-        
-        {/* Favorite Button */}
-        <TouchableOpacity 
-          style={styles.favoriteButtonContainer}
-          onPress={handleToggleFavorite}
-        >
+
+        <TouchableOpacity style={styles.favoriteButtonContainer} onPress={handleToggleFavorite}>
           <LinearGradient
             colors={favorited ? ['#ef4444', '#dc2626'] : ['#6366f1', '#4f46e5']}
             style={styles.favoriteButton}
           >
-            <Ionicons 
-              name={favorited ? "heart" : "heart-outline"} 
-              size={24} 
-              color="#ffffff" 
-            />
-            <Text style={styles.favoriteButtonText}>
-              {favorited ? 'Remove from Favorites' : 'Add to Favorites'}
-            </Text>
+            <Ionicons name={favorited ? 'heart' : 'heart-outline'} size={24} color="#ffffff" />
+            <Text style={styles.favoriteButtonText}>{favorited ? 'Remove from Favorites' : 'Add to Favorites'}</Text>
           </LinearGradient>
         </TouchableOpacity>
-        
-        {/* Coach Details */}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <Text style={styles.bio}>
@@ -297,43 +323,20 @@ export default function CoachDetailScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Expertise</Text>
           <View style={styles.tagsContainer}>
-            {coach.tags?.map((tag, index) => (
-              <View key={index} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            )) || 
-            ['Health', 'Wellness', coach.specialty].filter(Boolean).map((tag, index) => (
-              <View key={index} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
-            </View>
-            ))}
-            </View>
-            </View>
-
-        {/* Additional Info Cards */}
-        <View style={styles.infoCardsContainer}>
-          <View style={styles.infoCard}>
-            <Ionicons name="location-outline" size={24} color="#6366f1" />
-            <Text style={styles.infoCardTitle}>Location</Text>
-            <Text style={styles.infoCardText}>{coach.location || 'Remote'}</Text>
-            </View>
-          
-          <View style={styles.infoCard}>
-            <Ionicons name="time-outline" size={24} color="#6366f1" />
-            <Text style={styles.infoCardTitle}>Experience</Text>
-            <Text style={styles.infoCardText}>{coach.years_experience || '5'} years</Text>
-            </View>
-          
-          <View style={styles.infoCard}>
-            <Ionicons name="checkmark-circle-outline" size={24} color="#6366f1" />
-            <Text style={styles.infoCardTitle}>Status</Text>
-            <View style={[styles.statusBadge, coach.is_online ? styles.onlineBadge : styles.offlineBadge]}>
-              <Text style={styles.statusText}>{coach.is_online ? 'Online' : 'Offline'}</Text>
-            </View>
+            {coach.specialty
+              ? ['Health', 'Wellness', coach.specialty].filter(Boolean).map((tag, index) => (
+                  <View key={index} style={styles.tag}>
+                    <Text style={styles.tagText}>{tag}</Text>
+                  </View>
+                ))
+              : ['Health', 'Wellness'].map((tag, index) => (
+                  <View key={index} style={styles.tag}>
+                    <Text style={styles.tagText}>{tag}</Text>
+                  </View>
+                ))}
           </View>
         </View>
 
-        {/* Message Section */}
         <View style={styles.messageSection}>
           <Text style={styles.sectionTitle}>Send a Message</Text>
           <Text style={styles.creditsInfo}>
@@ -357,8 +360,8 @@ export default function CoachDetailScreen() {
               ) : (
                 <Ionicons name="send" size={20} color="#ffffff" />
               )}
-          </TouchableOpacity>
-        </View>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </>
@@ -516,99 +519,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  infoCardsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginHorizontal: 16,
-    marginTop: 24,
-  },
-  infoCard: {
-    width: '31%',
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
-    padding: 12,
-    alignItems: 'center',
-    marginBottom: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  infoCardTitle: {
-    fontSize: 12,
-    color: '#64748b',
-    marginTop: 4,
-    marginBottom: 2,
-  },
-  infoCardText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1e293b',
-    textAlign: 'center',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    marginTop: 2,
-  },
-  onlineBadge: {
-    backgroundColor: '#dcfce7',
-  },
-  offlineBadge: {
-    backgroundColor: '#fee2e2',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#166534',
-  },
-  messageSection: {
-    marginHorizontal: 16,
-    marginTop: 24,
-  },
-  creditsInfo: {
-    fontSize: 14,
-    color: '#64748b',
-    marginBottom: 12,
-  },
-  messageInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 16,
-  },
-  messageInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 12,
-    minHeight: 100,
-    maxHeight: 150,
-    backgroundColor: '#ffffff',
-    fontSize: 15,
-    color: '#1e293b',
-  },
-  sendButton: {
-    backgroundColor: '#6366f1',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginLeft: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  disabledButton: {
-    opacity: 0.5,
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -645,4 +555,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  messageSection: {
+    marginHorizontal: 16,
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  creditsInfo: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 12,
+  },
+  messageInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  messageInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 12,
+    minHeight: 100,
+    maxHeight: 150,
+    backgroundColor: '#ffffff',
+    fontSize: 15,
+    color: '#1e293b',
+  },
+  sendButton: {
+    backgroundColor: '#6366f1',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  }
 });

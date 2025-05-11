@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,6 @@ import {
   Dimensions,
   StatusBar,
   SafeAreaView,
-  Animated,
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,9 +24,15 @@ import { supabase } from '../../lib/supabase';
 import { getHealthCoaches, HealthCoach, initializeDatabase } from '../../services/database';
 import { useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAppNavigation } from '../../lib/navigation';
+import { useAppNavigation, navigate } from '../../lib/navigation';
+import debounce from 'lodash/debounce';
+import React from 'react';
+import { useAppInitialization } from '@hooks/useAppInitialization';
+import { useNavigationGuard } from '@hooks/useNavigationGuard';
 
 type PractitionerType = 'nutrition' | 'fitness' | 'mental' | 'sleep' | 'wellness' | 'all';
+
+type GlobalNavProtectedReason = 'detail' | 'funds' | 'cosmic_ai' | 'general_timestamp' | 'none';
 
 const { width } = Dimensions.get('window');
 const isSmallScreen = width < 375;
@@ -44,9 +49,27 @@ const getInitials = (name: string) => {
   return name.split(' ')[0][0].toUpperCase();
 };
 
+// Cache for tracking request states
+const apiRequestCache = {
+  currentRequestId: 0,
+  latestCompletedRequestId: 0
+};
+
+// Cooldown period to prevent excessive API calls
+const FETCH_COOLDOWN = 2000; // 2 seconds cooldown
+
+// Singleton for tracking state across component mounts/unmounts
+const globalState = {
+  lastCoachRender: 0,
+  hasCompletedInitialLoad: false,
+  cachedCoaches: [] as HealthCoach[],
+  activeFetchId: 0
+};
+
 export default function CoachesScreen() {
   const router = useRouter();
   const navigation = useAppNavigation();
+  const isInitialized = useAppInitialization();
   const [practitioners, setPractitioners] = useState<HealthCoach[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,238 +83,478 @@ export default function CoachesScreen() {
   const [hasMorePages, setHasMorePages] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedType, setSelectedType] = useState<PractitionerType>('all');
-  
-  const handlePress = useCallback(async (item: HealthCoach) => {
-    try {
-      console.log('Navigating to coach detail page for coach:', item);
-      
-      // Make sure we have a valid ID - digital ocean IDs might have a different format
-      if (!item.id) {
-        console.error('Coach is missing ID:', item);
-        Alert.alert('Error', 'Unable to view coach details. Missing ID.');
-        return;
-      }
-      
-      // Convert ID to string and ensure it's properly formatted
-      const coachId = String(item.id).trim();
-      console.log('Using coach ID for navigation:', coachId);
-      
-      // Use the safe navigation utility instead of direct router access
-      navigation.navigateToCoachDetail(coachId);
-    } catch (error) {
-      console.error('Failed to navigate to coach details:', error);
-      // Fallback navigation method
-      Alert.alert(
-        'Navigation Error',
-        'There was a problem viewing this coach. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
-  }, [navigation]);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const isMounted = useRef(true);
+  const prevSelectedType = useRef<PractitionerType>(selectedType);
+  const prevSearchTerm = useRef(searchTerm);
+  const currentPractitioners = useRef<HealthCoach[]>([]);
+  const lastFetchTime = useRef(0);
+  const mountTimeRef = useRef(Date.now());
+  const initialLoadDoneRef = useRef(false);
+  const initialUnloadDoneRef = useRef(false);
+  const cachedResult = useRef(globalState.cachedCoaches);
+  const [isGlobalNavProtected, setIsGlobalNavProtected] = useState(false);
+  const [globalNavProtectedReason, setGlobalNavProtectedReason] = useState<GlobalNavProtectedReason>('none');
 
-  const handleChatPress = useCallback(async () => {
-    try {
-      // Set a navigation lock to prevent rapid navigation that could cause conflicts
-      await AsyncStorage.setItem('last_navigation_timestamp', Date.now().toString());
-      
-      // Use a specific navigation path
-      console.log('Navigating to Cosmic AI subscription screen');
-      router.push('/cosmic-ai-subscription');
-    } catch (error) {
-      console.error('Failed to navigate:', error);
-      // Show error to user
-      Alert.alert(
-        'Navigation Error',
-        'There was a problem opening the AI chat. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
-  }, [router]);
+  // Use our new navigation helper
+  const { navigateToCoachDetail, navigateToCosmicAI } = useAppNavigation();
+
+  // Keep track of the current state in refs for comparison
+  useEffect(() => {
+    currentPractitioners.current = practitioners;
+  }, [practitioners]);
 
   useEffect(() => {
-    const initializeData = async () => {
-      try {
-        await initializeDatabase();
-        await checkSupabaseConnection();
-        await loadCoaches();
-        console.log('Total coaches available in database:', totalCoaches);
-      } catch (error) {
-        console.error('Initialization error:', error);
-        setError('Failed to initialize. Please try again.');
-      }
-    };
+    prevSelectedType.current = selectedType;
+  }, [selectedType]);
 
-    initializeData();
+  useEffect(() => {
+    prevSearchTerm.current = searchTerm;
+  }, [searchTerm]);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+      apiRequestCache.currentRequestId++;
+    };
   }, []);
 
-  const checkSupabaseConnection = async () => {
+  const checkSupabaseConnection = useCallback(async () => {
     try {
       setConnectionStatus('checking');
       const { data, error } = await supabase.from('health_coaches').select('id').limit(1);
-      if (error) {
-        console.error('Supabase connection error:', error.message);
-        setConnectionStatus('disconnected');
-      } else {
-        setConnectionStatus('connected');
-      }
+      if (error) throw error;
+      setConnectionStatus('connected');
     } catch (err) {
       console.error('Supabase connection check failed:', err);
       setConnectionStatus('disconnected');
     }
-  };
+  }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadCoaches();
-    }, [])
+  const checkGlobalNavigationLock = useCallback(async (): Promise<[boolean, GlobalNavProtectedReason]> => {
+    console.log('CoachesScreen: Checking for global navigation locks...');
+    try {
+      const now = Date.now();
+      const [
+        navToDetail,
+        navToAddFunds,
+        navToCosmicAI,
+        detailProtectionStart,
+        addFundsProtectionStart,
+        cosmicAIProtectionStart
+      ] = await Promise.all([
+        AsyncStorage.getItem('navigating_to_detail'),
+        AsyncStorage.getItem('navigating_to_add_funds'),
+        AsyncStorage.getItem('navigating_to_cosmic_ai'),
+        AsyncStorage.getItem('detail_protection_started_at'),
+        AsyncStorage.getItem('add_funds_protection_started_at'),
+        AsyncStorage.getItem('cosmic_ai_protection_started_at')
+      ]);
+
+      const checkTimestamp = (startTimeString: string | null): boolean => {
+        if (!startTimeString) return false;
+        const timestamp = parseInt(startTimeString, 10);
+        return !isNaN(timestamp) && (now - timestamp < 2000); // 2-second protection
+      };
+
+      // Clear expired flags
+      if (navToDetail === 'true' && !checkTimestamp(detailProtectionStart)) {
+        console.log('CoachesScreen: Clearing expired detail navigation flags');
+        await AsyncStorage.multiRemove(['navigating_to_detail', 'detail_protection_started_at', 'detail_flag_set_at']);
+        return [false, 'none'];
+      }
+      if (navToAddFunds === 'true' && !checkTimestamp(addFundsProtectionStart)) {
+        console.log('CoachesScreen: Clearing expired add funds navigation flags');
+        await AsyncStorage.removeItem('navigating_to_add_funds');
+        await AsyncStorage.removeItem('add_funds_protection_started_at');
+        return [false, 'none'];
+      }
+      if (navToCosmicAI === 'true' && !checkTimestamp(cosmicAIProtectionStart)) {
+        console.log('CoachesScreen: Clearing expired cosmic AI navigation flags');
+        await AsyncStorage.multiRemove(['navigating_to_cosmic_ai', 'cosmic_ai_protection_started_at']);
+        return [false, 'none'];
+      }
+
+      if (navToDetail === 'true') return [true, 'detail'];
+      if (navToAddFunds === 'true') return [true, 'funds'];
+      if (navToCosmicAI === 'true') return [true, 'cosmic_ai'];
+
+      if (checkTimestamp(detailProtectionStart) ||
+          checkTimestamp(addFundsProtectionStart) ||
+          checkTimestamp(cosmicAIProtectionStart)) {
+        return [true, 'general_timestamp'];
+      }
+
+      console.log('CoachesScreen: No active global navigation locks found.');
+      return [false, 'none'];
+    } catch (error) {
+      console.error('CoachesScreen: Error checking global navigation lock:', error);
+      return [false, 'none'];
+    }
+  }, []);
+
+  const initialize = useCallback(async () => {
+    if (!isMounted.current || !isInitialized) return;
+
+    const [isProtected, reason] = await checkGlobalNavigationLock();
+
+    const [detailFlag, cosmicFlag, addFundsFlag] = await Promise.all([
+      AsyncStorage.getItem('navigating_to_detail'),
+      AsyncStorage.getItem('navigating_to_cosmic_ai'),
+      AsyncStorage.getItem('navigating_to_add_funds')
+    ]);
+
+    if (detailFlag === 'true' || cosmicFlag === 'true' || addFundsFlag === 'true' || isProtected) {
+      console.log(`CoachesScreen: Navigation lock active. Deferring initialization. Reason: ${reason}`);
+      setIsGlobalNavProtected(true);
+      setGlobalNavProtectedReason(reason);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsGlobalNavProtected(false);
+    setGlobalNavProtectedReason('none');
+
+    const now = Date.now();
+    if (globalState.hasCompletedInitialLoad && now - globalState.lastCoachRender < 10000) {
+      console.log('Recent initialization detected, using cached data');
+      if (globalState.cachedCoaches && globalState.cachedCoaches.length > 0) {
+        console.log(`Setting cached ${globalState.cachedCoaches.length} coaches from global state`);
+        setPractitioners(globalState.cachedCoaches);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    try {
+      setIsLoading(true);
+      await initializeDatabase();
+      await checkSupabaseConnection();
+
+      const initRequestId = ++apiRequestCache.currentRequestId;
+      console.log(`Initialization request ID: ${initRequestId}`);
+      globalState.activeFetchId = initRequestId;
+
+      if (initRequestId !== globalState.activeFetchId) {
+        console.log('Skipping initialization - newer request exists');
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const result = await getHealthCoaches({
+          page: 1,
+          pageSize: 20,
+          searchTerm: searchTerm || undefined,
+          specialty: selectedType !== 'all' ? selectedType : undefined,
+        });
+
+        if (!isMounted.current || initRequestId !== globalState.activeFetchId) {
+          console.log(`Init request ${initRequestId} was superseded, skipping state update`);
+          return;
+        }
+
+        if (result?.coaches?.length > 0) {
+          console.log(`Initialization complete with ${result.coaches.length} coaches`);
+          setPractitioners(result.coaches);
+          setTotalCoaches(result.total || 0);
+          setHasMorePages(result.page < result.totalPages);
+          setCurrentPage(result.page || 1);
+
+          globalState.cachedCoaches = result.coaches;
+          globalState.lastCoachRender = now;
+          globalState.hasCompletedInitialLoad = true;
+          apiRequestCache.latestCompletedRequestId = initRequestId;
+          initialLoadDoneRef.current = true;
+        } else {
+          console.warn('No coaches found during initialization');
+          setPractitioners([]);
+          setTotalCoaches(0);
+          initialLoadDoneRef.current = true;
+        }
+      } catch (error) {
+        console.error('Error during initial data fetch:', error);
+        if (isMounted.current && initRequestId === globalState.activeFetchId) {
+          setError('Failed to initialize. Please try again.');
+        }
+        initialLoadDoneRef.current = true;
+      } finally {
+        if (isMounted.current && initRequestId === globalState.activeFetchId) {
+          setIsLoading(false);
+        }
+      }
+    } catch (error) {
+      console.error('Initialization setup error:', error);
+      if (isMounted.current) {
+        setError('Failed to initialize setup. Please try again.');
+        setIsLoading(false);
+      }
+      initialLoadDoneRef.current = true;
+    }
+  }, [checkSupabaseConnection, isInitialized, searchTerm, selectedType]);
+
+  const loadCoaches = useCallback(
+    async (page = 1, append = false) => {
+      if (!isMounted.current || !isInitialized) return;
+
+      const now = Date.now();
+      if (now - lastFetchTime.current < FETCH_COOLDOWN && !append) {
+        console.log(`Skipping loadCoaches call - cooldown period`);
+        return;
+      }
+
+      if (now - mountTimeRef.current < 1000 && !initialLoadDoneRef.current) {
+        console.log('Skipping API call during initial render period');
+        return;
+      }
+
+      const requestId = ++apiRequestCache.currentRequestId;
+      globalState.activeFetchId = requestId;
+
+      try {
+        console.log(`==== LOAD COACHES START (request ID: ${requestId}) ====`);
+        lastFetchTime.current = now;
+        setError(null);
+
+        if (!isRefreshing && !append) setIsLoading(true);
+        if (append) setLoadingMore(true);
+
+        const pageSize = 20;
+        const searchParams = {
+          page,
+          pageSize,
+          searchTerm: searchTerm || undefined,
+          specialty: selectedType !== 'all' ? selectedType : undefined,
+        };
+
+        const result = await getHealthCoaches(searchParams);
+
+        if (!isMounted.current || requestId !== globalState.activeFetchId) {
+          console.log(`Request ${requestId} was superseded, skipping state update`);
+          return;
+        }
+
+        if (result?.coaches) {
+          if (append) {
+            setPractitioners(prev => [...prev, ...result.coaches]);
+          } else {
+            setPractitioners(result.coaches);
+          }
+          setTotalCoaches(result.total || 0);
+          setHasMorePages(result.page < result.totalPages);
+          setCurrentPage(result.page || 1);
+
+          if (!append) {
+            globalState.cachedCoaches = result.coaches;
+            globalState.lastCoachRender = now;
+          }
+        }
+      } catch (error) {
+        console.error('Error loading coaches:', error);
+        if (isMounted.current && requestId === globalState.activeFetchId) {
+          setError('Failed to load coaches. Please try again.');
+        }
+      } finally {
+        if (isMounted.current && requestId === globalState.activeFetchId) {
+          setIsLoading(false);
+          setLoadingMore(false);
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [searchTerm, selectedType, isRefreshing, isInitialized]
+  );
+
+  const debouncedLoadCoaches = useCallback(
+    debounce(loadCoaches, 500),
+    [loadCoaches]
   );
 
   useEffect(() => {
-    if (error && retryCount < 3) {
-      const timer = setTimeout(() => {
-        setRetryCount((prev) => prev + 1);
-        loadCoaches();
-      }, 2000);
+    if (!initialLoadDoneRef.current && !isNavigating && isMounted.current && isInitialized) {
+      console.log('Attempting initial data load sequence.');
+      const attemptInitialLoad = async () => {
+        try {
+          const [detailFlag, cosmicFlag, addFundsFlag, lastNavTimestamp] = await Promise.all([
+            AsyncStorage.getItem('navigating_to_detail'),
+            AsyncStorage.getItem('navigating_to_cosmic_ai'),
+            AsyncStorage.getItem('navigating_to_add_funds'),
+            AsyncStorage.getItem('last_navigation_timestamp')
+          ]);
 
-      return () => clearTimeout(timer);
+          if (detailFlag === 'true' || cosmicFlag === 'true' || addFundsFlag === 'true') {
+            console.log('Initial load skipped due to active navigation flags:', { detailFlag, cosmicFlag, addFundsFlag });
+            setTimeout(() => {
+              if (isMounted.current) {
+                console.log('Retrying initialization after delay');
+                initialize();
+              }
+            }, 2000);
+            return;
+          }
+
+          if (lastNavTimestamp) {
+            const timestamp = parseInt(lastNavTimestamp, 10);
+            if (!isNaN(timestamp) && (Date.now() - timestamp < 2000)) {
+              console.log('Recent navigation detected, delaying initialization');
+              setTimeout(() => {
+                if (isMounted.current) {
+                  initialize();
+                }
+              }, 1000);
+              return;
+            }
+          }
+
+          console.log('No navigation flags active, proceeding with initial load.');
+          initialize();
+        } catch (error) {
+          console.error('Error checking navigation flags for initial load:', error);
+          initialize();
+        }
+      };
+      attemptInitialLoad();
     }
-  }, [error, retryCount]);
+  }, [initialize, isNavigating, isInitialized]);
 
-  // Add effect to reload coaches when filter type changes
   useEffect(() => {
-    if (selectedType) {
-      console.log('Filter changed to:', selectedType);
+    if (initialLoadDoneRef.current && prevSearchTerm.current !== searchTerm && isMounted.current) {
+      console.log(`Search term changed from "${prevSearchTerm.current}" to "${searchTerm}", reloading coaches.`);
       setCurrentPage(1);
-      loadCoaches(1, false);
+      debouncedLoadCoaches(1, false);
     }
-  }, [selectedType]);
+  }, [searchTerm, debouncedLoadCoaches]);
 
-  const loadCoaches = async (page = 1, append = false) => {
-    try {
-      console.log('==== LOAD COACHES START ====');
-      console.log('loadCoaches called with page:', page, 'append:', append);
-      console.log('Current selectedType:', selectedType);
-      setError(null);
-      if (!isRefreshing && !append) setIsLoading(true);
-      if (append) setLoadingMore(true);
+  useEffect(() => {
+    if (initialLoadDoneRef.current && prevSelectedType.current !== selectedType && isMounted.current) {
+      console.log(`Selected type changed from "${prevSelectedType.current}" to "${selectedType}", reloading coaches.`);
+      setCurrentPage(1);
+      debouncedLoadCoaches(1, false);
+    }
+  }, [selectedType, debouncedLoadCoaches]);
 
-      const pageSize = 20;
+  useFocusEffect(
+    useCallback(() => {
+      const checkNavStateBeforeReload = async () => {
+        try {
+          const [detailFlag, cosmicFlag, addFundsFlag] = await Promise.all([
+            AsyncStorage.getItem('navigating_to_detail'),
+            AsyncStorage.getItem('navigating_to_cosmic_ai'),
+            AsyncStorage.getItem('navigating_to_add_funds')
+          ]);
 
-      // Add specialty filter back when not 'all'
-      const searchParams = {
-        page,
-        pageSize,
-        searchTerm: searchTerm || undefined,
-        specialty: selectedType !== 'all' ? selectedType : undefined
+          if (detailFlag === 'true' || cosmicFlag === 'true' || addFundsFlag === 'true') {
+            console.log('Focus effect - skipping reload due to active navigation');
+            return;
+          }
+
+          const now = Date.now();
+          if (initialLoadDoneRef.current && !isNavigating && isMounted.current && (now - globalState.lastCoachRender > 30000)) {
+            if (practitioners.length > 0 || totalCoaches > 0) {
+              console.log('Screen focused and data is stale. Refreshing coaches.');
+              loadCoaches(1, false);
+            } else {
+              console.log('Screen focused, data stale, but no initial practitioners loaded. Skipping refresh.');
+            }
+          }
+        } catch (error) {
+          console.error('Error in focus effect:', error);
+        }
       };
 
-      console.log('Fetching with params:', JSON.stringify(searchParams));
+      checkNavStateBeforeReload();
+      return () => {};
+    }, [isNavigating, loadCoaches, practitioners.length, totalCoaches])
+  );
 
-      const result = await getHealthCoaches(searchParams);
-
-      console.log(`DEBUG: Fetched ${result?.coaches?.length || 0} coaches of ${result?.total || 0} total`);
-      console.log(`DEBUG: Page ${result?.page} of ${result?.totalPages}, pageSize: ${result?.pageSize}`);
-
-      if (result?.coaches?.length > 0) {
-        console.log('DEBUG: First coach data sample:', {
-          id: result.coaches[0].id,
-          name: result.coaches[0].name,
-          specialty: result.coaches[0].specialty,
-          rating: result.coaches[0].rating,
-        });
-      } else {
-        console.warn('No coaches returned for the current query');
-      }
-
-      setTotalCoaches(result?.total || 0);
-      setHasMorePages(result?.page < result?.totalPages);
-      setCurrentPage(result?.page || 1);
-
-      if (append) {
-        setPractitioners((prev) => [...prev, ...(result?.coaches || [])]);
-      } else {
-        setPractitioners(result?.coaches || []);
-      }
-
-      // If no coaches were found, retry once with fallback data
-      if (result?.coaches?.length === 0 && !append) {
-        console.log('No coaches found, ensuring fallback data is initialized');
-        await initializeDatabase();
-      }
-
-      console.log('DEBUG: State updated with coaches count:', result?.coaches?.length || 0);
-      console.log('DEBUG: Current practitioners state length:', practitioners.length);
-      console.log('==== LOAD COACHES END ====');
-    } catch (err) {
-      console.error('Failed to load coaches:', err);
-      setError('Failed to load coaches. Please try again.');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-      setLoadingMore(false);
-    }
-  };
-
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setIsRefreshing(true);
     setRetryCount(0);
     setCurrentPage(1);
-    loadCoaches(1);
-  };
+    loadCoaches(1, false);
+  }, [loadCoaches]);
 
-  const loadMoreCoaches = () => {
-    if (hasMorePages && !loadingMore) {
+  const loadMoreCoaches = useCallback(() => {
+    if (hasMorePages && !loadingMore && !isLoading) {
       console.log('Loading more coaches page:', currentPage + 1);
-      setLoadingMore(true);
-      setTimeout(() => {
-        loadCoaches(currentPage + 1, true);
-      }, 500);
+      loadCoaches(currentPage + 1, true);
     }
-  };
+  }, [currentPage, hasMorePages, loadingMore, isLoading, loadCoaches]);
 
-  const handleSearch = () => {
+  const handleSearch = useCallback(() => {
     setCurrentPage(1);
-    loadCoaches(1);
-  };
+    loadCoaches(1, false);
+  }, [loadCoaches]);
 
-  const clearSearch = () => {
+  const clearSearch = useCallback(() => {
     setSearchTerm('');
     setCurrentPage(1);
-    loadCoaches(1);
-  };
+    loadCoaches(1, false);
+  }, [loadCoaches]);
 
-  const truncateText = (text: string, maxLength: number) => {
+  const truncateText = useCallback((text: string, maxLength: number) => {
     if (!text) return '';
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
-  };
+  }, []);
 
-  const handleFilterPress = () => {
+  const handleFilterPress = useCallback(() => {
     Alert.alert(
-      "Filter Coaches",
-      "Select a category",
+      'Filter Coaches',
+      'Select a category',
       [
-        { text: "All", onPress: () => setSelectedType('all') },
-        { text: "Nutrition", onPress: () => setSelectedType('nutrition') },
-        { text: "Fitness", onPress: () => setSelectedType('fitness') },
-        { text: "Mental", onPress: () => setSelectedType('mental') },
-        { text: "Wellness", onPress: () => setSelectedType('wellness') },
-        { text: "Sleep", onPress: () => setSelectedType('sleep') },
-        { text: "Cancel", style: "cancel" }
+        { text: 'All', onPress: () => setSelectedType('all') },
+        { text: 'Nutrition', onPress: () => setSelectedType('nutrition') },
+        { text: 'Fitness', onPress: () => setSelectedType('fitness') },
+        { text: 'Mental', onPress: () => setSelectedType('mental') },
+        { text: 'Wellness', onPress: () => setSelectedType('wellness') },
+        { text: 'Sleep', onPress: () => setSelectedType('sleep') },
+        { text: 'Cancel', style: 'cancel' },
       ]
     );
+  }, []);
+
+  const handleSelectCoach = (coach: HealthCoach) => {
+    if (!coach?.id) {
+      console.error('Invalid coach selected, missing ID');
+      return;
+    }
+    
+    console.log(`Navigating to coach detail: ${coach.id}`);
+    
+    // Navigate directly without any flagging or locking
+    navigate(`/${coach.id}`);
   };
 
-  const renderPractitioner = ({ item }: { item: HealthCoach }) => (
+  const handleChatPress = useCallback(async () => {
+    if (!isInitialized) {
+      console.warn('App not initialized, delaying navigation');
+      Alert.alert('Loading', 'Please wait while the app initializes.');
+      return;
+    }
+
+    try {
+      // Set navigating state for UI
+      setIsNavigating(true);
+      
+      // Navigate using our clean navigation service
+      navigateToCosmicAI();
+    } catch (error) {
+      console.error('Failed to navigate to cosmic AI:', error);
+      Alert.alert('Navigation Error', 'There was a problem opening the AI chat. Please try again.');
+    } finally {
+      // Always reset navigation state
+      setTimeout(() => setIsNavigating(false), 500);
+    }
+  }, [navigateToCosmicAI, isInitialized]);
+
+  const renderPractitioner = useCallback(({ item }: { item: HealthCoach }) => (
     <TouchableOpacity
       style={styles.practitionerCard}
-      onPress={() => handlePress(item)}
-      disabled={isLoading}
+      onPress={() => handleSelectCoach(item)}
+      disabled={isLoading || !isInitialized}
       activeOpacity={0.7}
     >
-      {/* Add debugging information */}
-      {console.log(`Rendering coach card: ID=${item.id}, Name=${item.name}, Specialty=${item.specialty}`)}
-      
       <ImageBackground
         source={{
           uri: item.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop',
@@ -299,10 +562,7 @@ export default function CoachesScreen() {
         style={styles.cardBackground}
         imageStyle={styles.cardBackgroundImage}
       >
-        <LinearGradient 
-          colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']} 
-          style={styles.cardOverlay}
-        >
+        <LinearGradient colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']} style={styles.cardOverlay}>
           <View style={styles.cardContent}>
             <View style={styles.nameContainer}>
               <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
@@ -320,11 +580,11 @@ export default function CoachesScreen() {
             <View style={styles.ratingContainer}>
               <Ionicons name="star" size={16} color="#fbbf24" />
               <Text style={styles.rating}>
-                {typeof item.rating === 'number' 
-                  ? item.rating.toFixed(1) 
-                  : typeof item.rating === 'string' 
-                    ? parseFloat(item.rating).toFixed(1) 
-                    : '5.0'}
+                {typeof item.rating === 'number'
+                  ? item.rating.toFixed(1)
+                  : typeof item.rating === 'string'
+                  ? parseFloat(item.rating).toFixed(1)
+                  : '5.0'}
               </Text>
               <Text style={styles.reviews}>({item.reviews_count || 0} reviews)</Text>
             </View>
@@ -340,7 +600,7 @@ export default function CoachesScreen() {
         </LinearGradient>
       </ImageBackground>
     </TouchableOpacity>
-  );
+  ), [handleSelectCoach, isLoading, isInitialized]);
 
   const renderEmptyState = () => {
     if (isLoading) return null;
@@ -352,11 +612,11 @@ export default function CoachesScreen() {
         <Text style={styles.emptyText}>
           {searchTerm && selectedType !== 'all'
             ? `We couldn't find any ${selectedType} coaches matching "${searchTerm}"`
-            : searchTerm 
-              ? `We couldn't find any coaches matching "${searchTerm}"`
-              : selectedType !== 'all'
-                ? `We couldn't find any ${selectedType} coaches`
-                : "We're having trouble loading health coaches right now"}
+            : searchTerm
+            ? `We couldn't find any coaches matching "${searchTerm}"`
+            : selectedType !== 'all'
+            ? `We couldn't find any ${selectedType} coaches`
+            : "We're having trouble loading health coaches right now"}
         </Text>
         <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
           <Text style={styles.retryButtonText}>Refresh</Text>
@@ -396,6 +656,8 @@ export default function CoachesScreen() {
   };
 
   const loadAllCoaches = async () => {
+    if (!isInitialized) return;
+
     try {
       setIsLoading(true);
       setError(null);
@@ -412,24 +674,72 @@ export default function CoachesScreen() {
 
       console.log(`Loaded all ${result?.coaches?.length || 0} coaches of ${result?.total || 0} total`);
 
-      setPractitioners(result?.coaches || []);
-      setHasMorePages(false);
-      setCurrentPage(1);
+      if (isMounted.current) {
+        setPractitioners(result?.coaches || []);
+        setHasMorePages(false);
+        setCurrentPage(1);
+      }
     } catch (err) {
       console.error('Failed to load all coaches:', err);
-      setError('Failed to load all coaches. Please try again.');
+      if (isMounted.current) {
+        setError('Failed to load all coaches. Please try again.');
+      }
     } finally {
-      setIsLoading(false);
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
     }
   };
+
+  useEffect(() => {
+    isMounted.current = true;
+    mountTimeRef.current = Date.now();
+    return () => {
+      isMounted.current = false;
+      apiRequestCache.currentRequestId++;
+      console.log('CoachesScreen unmounted, request ID incremented');
+      if (currentPractitioners.current.length > 0) {
+        console.log('Caching coaches to global state on unmount');
+        globalState.cachedCoaches = currentPractitioners.current;
+        globalState.lastCoachRender = Date.now();
+      }
+    };
+  }, []);
+
+  if (!isInitialized) {
+    return (
+      <SafeAreaView style={styles.safeAreaFullLoad}>
+        <View style={styles.fullScreenCentered}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.fullScreenText}>Initializing app, please wait...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isGlobalNavProtected) {
+    return (
+      <SafeAreaView style={styles.safeAreaFullLoad}>
+        <View style={styles.fullScreenCentered}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.fullScreenText}>
+            Finalizing your session, please wait...
+          </Text>
+          <Text style={styles.fullScreenSubText}>
+            (Reason code: {globalNavProtectedReason})
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (isLoading && !isRefreshing) {
     return (
       <View style={styles.container}>
         <StatusBar backgroundColor="#4f46e5" barStyle="light-content" />
-        <LinearGradient 
-          colors={['#4f46e5', '#6366f1']} 
-          start={{ x: 0, y: 0 }} 
+        <LinearGradient
+          colors={['#4f46e5', '#6366f1']}
+          start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={styles.headerBackground}
         >
@@ -499,11 +809,7 @@ export default function CoachesScreen() {
           </ScrollView>
 
           <View style={styles.floatingButtonContainer}>
-            <TouchableOpacity 
-              style={styles.floatingButton} 
-              onPress={handleChatPress}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.floatingButton} onPress={handleChatPress} activeOpacity={0.7} disabled={!isInitialized}>
               <LinearGradient
                 colors={['#6366f1', '#4f46e5']}
                 style={styles.gradientButton}
@@ -526,7 +832,7 @@ export default function CoachesScreen() {
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle" size={48} color="#ef4444" />
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => loadCoaches()}>
+          <TouchableOpacity style={styles.retryButton} onPress={() => loadCoaches(1, false)}>
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
@@ -537,9 +843,9 @@ export default function CoachesScreen() {
   return (
     <View style={styles.container}>
       <StatusBar backgroundColor="#4f46e5" barStyle="light-content" />
-      <LinearGradient 
-        colors={['#4f46e5', '#6366f1']} 
-        start={{ x: 0, y: 0 }} 
+      <LinearGradient
+        colors={['#4f46e5', '#6366f1']}
+        start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={styles.headerBackground}
       >
@@ -620,11 +926,7 @@ export default function CoachesScreen() {
         />
 
         <View style={styles.floatingButtonContainer}>
-          <TouchableOpacity 
-            style={styles.floatingButton} 
-            onPress={handleChatPress}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity style={styles.floatingButton} onPress={handleChatPress} activeOpacity={0.7} disabled={!isInitialized}>
             <LinearGradient
               colors={['#6366f1', '#4f46e5']}
               style={styles.gradientButton}
@@ -643,6 +945,10 @@ export default function CoachesScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  safeArea: {
     flex: 1,
     backgroundColor: '#f8fafc',
   },
@@ -1052,5 +1358,32 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
     fontWeight: '600',
+  },
+  safeAreaFullLoad: {
+    flex: 1,
+    backgroundColor: '#F7F7F7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenCentered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  fullScreenText: {
+    fontSize: 18,
+    color: '#333',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  fullScreenSubText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  activityIndicator: {
+    marginTop: 20,
   },
 });

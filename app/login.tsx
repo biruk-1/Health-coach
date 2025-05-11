@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState, useRef } from 'react';
 import {
   View,
@@ -141,7 +144,7 @@ export default function LoginScreen() {
 
   const handleSignupRedirect = () => {
     if (!loading) {
-      router.push('/onboarding');
+      router.navigate('/onboarding');
     }
   };
 

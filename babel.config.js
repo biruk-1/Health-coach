@@ -13,6 +13,16 @@ module.exports = function (api) {
         safe: false,
         allowUndefined: true,
       }],
+      ['module-resolver', {
+        root: ['./'],
+        alias: {
+          '@hooks': './app/hooks',
+          '@components': './app/components',
+          '@services': './app/services',
+          '@context': './app/context',
+          '@lib': './app/lib',
+        },
+      }],
     ],
   };
 }; 

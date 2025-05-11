@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -87,7 +90,7 @@ export default function ProfilePhotoScreen() {
 
   const handleNext = () => {
     if (photo) {
-      router.push('/psychic-onboarding/specialties');
+      router.navigate('/psychic-onboarding/specialties');
     }
   };
 

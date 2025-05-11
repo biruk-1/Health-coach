@@ -11,10 +11,20 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-native"
+    "jsx": "react-native",
+    "baseUrl": ".",
+    "paths": {
+      "@hooks/*": ["app/hooks/*"],
+      "@components/*": ["app/components/*"],
+      "@services/*": ["app/services/*"],
+      "@context/*": ["app/context/*"],
+      "@lib/*": ["app/lib/*"]
+    }
   },
   "extends": "expo/tsconfig.base",
   "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",

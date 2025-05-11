@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState } from 'react';
 import {
   View,
@@ -38,7 +41,7 @@ export default function SpecialtiesScreen() {
 
   const handleNext = () => {
     if (selected.length > 0) {
-      router.push('/psychic-onboarding/background');
+      router.navigate('/psychic-onboarding/background');
     }
   };
 

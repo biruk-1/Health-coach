@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState, useCallback } from 'react';
 import {
   View,
@@ -47,8 +50,16 @@ export default function PurchaseScreen({ screenTitle, iconName, onCloseRoute, su
       await purchaseCredits(plan.sku);
       await refreshBalance();
 
-      router.push(successRoute);
-      Alert.alert('Success', `${successMessage} ${plan.credits} credits!`);
+      Alert.alert('Success', `${successMessage} ${plan.credits} credits!`, [
+        { 
+          text: 'OK', 
+          onPress: () => {
+            if (router.canGoBack() && successRoute) {
+      router.navigate(successRoute);
+            }
+          }
+        }
+      ]);
     } catch (error: any) {
       console.error('Purchase error:', error);
       let errorMessage = 'Purchase failed. Please try again.';
@@ -85,7 +96,7 @@ export default function PurchaseScreen({ screenTitle, iconName, onCloseRoute, su
     if (onCloseRoute.includes('(tabs)')) {
       router.replace(onCloseRoute);
     } else {
-      router.push(onCloseRoute);
+      router.navigate(onCloseRoute);
     }
   };
 

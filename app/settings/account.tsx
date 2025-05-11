@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -18,10 +21,12 @@ import { supabase } from './../../lib/supabase';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
+import { usePurchases } from '../../context/PurchaseContext';
 
 export default function AccountScreen() {
   const router = useRouter();
-  const { user, session } = useAuth();
+  const { user, session, updateUserState } = useAuth();
+  const { balance, refreshBalance } = usePurchases();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -53,6 +58,11 @@ export default function AccountScreen() {
 
   // Function to check if a field has been modified
   const isFieldModified = (field: string) => {
+    // Email changes are disabled, so always return false for email
+    if (field === 'email') {
+      return false;
+    }
+    
     // @ts-ignore
     if (field === 'birthDate' || field === 'birthTime') {
       // For date objects, compare ISO strings
@@ -83,6 +93,7 @@ export default function AccountScreen() {
   useEffect(() => {
     if (user && user.id) {
       loadUserData();
+      refreshBalance();
     }
   }, [user]);
 
@@ -202,7 +213,7 @@ export default function AccountScreen() {
         Alert.alert(
           'Authentication Error',
           'Your session has expired. Please log in again.',
-          [{ text: 'OK', onPress: () => router.push('/login') }]
+          [{ text: 'OK', onPress: () => router.navigate('/login') }]
         );
       } else {
         Alert.alert('Error', 'Failed to load account information: ' + error.message);
@@ -239,10 +250,11 @@ export default function AccountScreen() {
         throw new Error('Please enter a valid email address');
       }
 
-      // Prepare the update payload with all form values
+      // Prepare the update payload with all form values except email
+      // We're using the original email to ensure no email changes are processed
       const updatePayload = {
         fullName: form.fullName,
-        email: form.email,
+        email: originalForm.email, // Always use the original email
         phone: form.phone,
         birthDate: form.birthDate,
         birthTime: form.birthTime,
@@ -267,6 +279,16 @@ export default function AccountScreen() {
       await new Promise(resolve => setTimeout(resolve, 800));
       
       try {
+        // Get the latest user data from Supabase to update the UI
+        const { data: { user: updatedSupabaseUser }, error: userError } = await supabase.auth.getUser();
+        
+        if (userError) {
+          console.error('Error getting updated user:', userError);
+        } else if (updatedSupabaseUser) {
+          // Update local state immediately with new user data
+          updateUserState(updatedSupabaseUser);
+        }
+        
         // Try to reload user data to confirm changes, but don't fail if this doesn't work
         console.log('Update successful, attempting to reload user data to confirm changes...');
         const success = await loadUserData();
@@ -297,7 +319,7 @@ export default function AccountScreen() {
         Alert.alert(
           'Authentication Error',
           'Your session has expired. Please log in again.',
-          [{ text: 'OK', onPress: () => router.push('/login') }]
+          [{ text: 'OK', onPress: () => router.navigate('/login') }]
         );
       } else {
         Alert.alert(
@@ -324,7 +346,7 @@ export default function AccountScreen() {
 
   const handleBack = () => {
     if (saving) return;
-    router.push('/(tabs)/settings');
+    router.navigate('/(tabs)/settings');
   };
 
   const renderCustomHeader = () => (
@@ -392,10 +414,10 @@ export default function AccountScreen() {
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
-      router.push('/login');
+      router.navigate('/login');
     } catch (error) {
       console.error('Logout error:', error);
-      router.push('/login');
+      router.navigate('/login');
     }
   };
 
@@ -421,7 +443,7 @@ export default function AccountScreen() {
           </Text>
           <TouchableOpacity 
             style={styles.authErrorButton} 
-            onPress={() => router.push('/login')}
+            onPress={() => router.navigate('/login')}
           >
             <Text style={styles.authErrorButtonText}>Log In</Text>
           </TouchableOpacity>
@@ -477,6 +499,13 @@ export default function AccountScreen() {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account Information</Text>
+          
+          <View style={styles.creditBalanceContainer}>
+            <Ionicons name="wallet-outline" size={24} color="#6366f1" />
+            <Text style={styles.creditBalanceText}>Credit Balance: <Text style={styles.creditAmount}>{balance}</Text></Text>
+          </View>
+
           {renderFormField(
             'Full Name', 
             form.fullName,
@@ -485,14 +514,22 @@ export default function AccountScreen() {
             'fullName'
           )}
 
-          {renderFormField(
-            'Email Address', 
-            form.email,
-            (text) => setForm({ ...form, email: text }),
-            'Enter your email',
-            'email',
-            'email-address'
-          )}
+          <View style={styles.formGroup}>
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Email Address</Text>
+              <Text style={styles.currentValue}>Current: {form.email}</Text>
+            </View>
+            <TextInput
+              style={[styles.input, styles.disabledInput]}
+              value={form.email}
+              placeholder="Enter your email"
+              placeholderTextColor="#94a3b8"
+              editable={false}
+            />
+            <Text style={styles.phoneNote}>
+              Email updates are temporarily disabled.
+            </Text>
+          </View>
 
           {renderPhoneField()}
 
@@ -733,6 +770,12 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  sectionTitle: {
+    fontSize: 19,
+    color: '#161616',
+    marginBottom: 12,
+    fontWeight: '700',
+  },
   formGroup: {
     marginBottom: 16,
   },
@@ -944,5 +987,39 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  fieldValue: {
+    flex: 1,
+    borderRadius: 8,
+    backgroundColor: '#222222',
+    padding: 12,
+    color: '#ffffff',
+    fontSize: 16,
+  },
+  creditBalanceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#222222',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  creditBalanceText: {
+    fontSize: 16,
+    color: '#ffffff',
+    fontWeight: '500',
+  },
+  creditAmount: {
+    fontWeight: '700',
+    color: '#6366f1',
+  },
+  dateTimeField: {
+    // ... existing code ...
+  },
+  disabledInput: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
+    borderWidth: 1,
   },
 });

@@ -1,21 +1,29 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, View, Text, StyleSheet, Dimensions } from 'react-native';
-import React from 'react';
+import { Platform, View, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useAppInitialization } from '@hooks/useAppInitialization';
+import { useNavigationGuard } from '@hooks/useNavigationGuard';
 
-const { width, height } = Dimensions.get('window');
-
-// Define the TabLayout as a regular function component
+// Simple optimized tab layout
 function TabLayout() {
+  // State
   const { user } = useAuth();
+  const [isReady, setIsReady] = useState(false);
   
-  // Don't render tabs at all if there's no authenticated user
-  if (!user) {
-    return null;
-  }
+  // Initialize on first render
+  useEffect(() => {
+    // Short delay for smoother transitions
+    const timer = setTimeout(() => {
+      setIsReady(true);
+    }, 200);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
-  return (
+  // Tab configuration
+  const tabScreens = useMemo(() => (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: '#6366f1',
@@ -48,7 +56,6 @@ function TabLayout() {
         },
         tabBarItemStyle: {
           padding: 5,
-          
         },
         tabBarLabelStyle: {
           fontSize: 12,
@@ -113,9 +120,26 @@ function TabLayout() {
         }}
       />
     </Tabs>
-  );
+  ), []);
+
+  // Don't render without user or before ready
+  if (!user) {
+    return null;
+  }
+
+  // Show loading state before ready
+  if (!isReady) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6366f1" />
+      </View>
+    );
+  }
+
+  return tabScreens;
 }
 
+// Efficient memoized styles
 const styles = StyleSheet.create({
   iconContainer: {
     alignItems: 'center',
@@ -125,14 +149,19 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     backgroundColor: '#eff6ff',
-    borderRadius: 12,
-    padding: 5,
-    width: 34,
-    height: 34,
-    alignItems: 'center',
+    borderRadius: 8,
+    width: '100%',
+    height: '100%',
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
   },
 });
 
-// Export the function directly instead of the memoized component
-export default TabLayout;
+// Export a memoized component to prevent unnecessary re-renders
+export default React.memo(TabLayout);

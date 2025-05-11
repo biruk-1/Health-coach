@@ -1,4 +1,7 @@
-import React from 'react';
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,10 +13,16 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
+import { usePurchases } from '../../context/PurchaseContext';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { balance, refreshBalance } = usePurchases();
+
+  useEffect(() => {
+    refreshBalance();
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -27,7 +36,7 @@ export default function SettingsScreen() {
 
   const handleNavigate = (route: string) => {
     console.log(`Navigating to ${route}`);
-    router.push(route as any);
+    router.navigate(route as any);
   };
 
   return (
@@ -39,6 +48,12 @@ export default function SettingsScreen() {
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
+          
+          <View style={styles.creditBalanceContainer}>
+            <Ionicons name="wallet-outline" size={24} color="#6366f1" />
+            <Text style={styles.creditBalanceText}>Credit Balance: <Text style={styles.creditAmount}>{balance}</Text></Text>
+          </View>
+
           <TouchableOpacity
             style={styles.menuItem}
             onPress={() => handleNavigate('/settings/account')}
@@ -145,6 +160,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#ffffff',
     fontWeight: '500',
+  },
+  creditBalanceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#222222',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  creditBalanceText: {
+    fontSize: 16,
+    color: '#ffffff',
+    fontWeight: '500',
+  },
+  creditAmount: {
+    fontWeight: '700',
+    color: '#6366f1',
   },
   signOutButton: {
     backgroundColor: '#dc2626',

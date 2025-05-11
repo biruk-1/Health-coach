@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -170,7 +173,7 @@ export default function OnboardingScreen() {
 
   const handleLoginRedirect = () => {
     if (!loading) {
-      router.push('/login');
+      router.navigate('/login');
     }
   };
 
@@ -405,7 +408,7 @@ export default function OnboardingScreen() {
         "An account with this email already exists. Would you like to login?",
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Login", onPress: () => router.push('/login') }
+          { text: "Login", onPress: () => router.navigate('/login') }
         ]
       );
     } else {
@@ -1094,3 +1097,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+

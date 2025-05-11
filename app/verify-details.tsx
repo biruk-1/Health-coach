@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -119,7 +122,7 @@ export default function VerifyDetailsScreen() {
         Alert.alert(
           'Verification Successful',
           'Your phone number has been verified successfully!',
-          [{ text: 'Continue', onPress: () => router.push('/verify-success') }]
+          [{ text: 'Continue', onPress: () => router.navigate('/verify-success') }]
         );
       } else {
         setVerificationError(result.error || 'Invalid verification code');
@@ -137,7 +140,7 @@ export default function VerifyDetailsScreen() {
   const handleVerify = () => {
     if (isVerified) {
       trackEvent('psychic_verification_completed', { psychic_id: businessDetails?.id });
-      router.push('/verify-success');
+      router.navigate('/verify-success');
     } else {
       handleVerifyCode();
     }

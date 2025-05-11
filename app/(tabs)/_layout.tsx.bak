@@ -1,0 +1,566 @@
+import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Platform, View, Text, StyleSheet, Dimensions, AppState, InteractionManager } from 'react-native';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const { width, height } = Dimensions.get('window');
+
+// Define the TabLayout as a regular function component
+function TabLayout() {
+  console.log('TabLayout: Component render started');
+  const { user } = useAuth();
+  const [shouldRender, setShouldRender] = useState(true);
+  const [navigationState, setNavigationState] = useState({
+    navigatingToDetail: false,
+    navigatingToAddFunds: false,
+    navigatingToCosmicAI: false,
+    protectionActive: false
+  });
+  const [isFirstMount, setIsFirstMount] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
+  
+  const appState = useRef(AppState.currentState);
+  const lastCheck = useRef(Date.now());
+  const checkInterval = useRef<NodeJS.Timeout | null>(null);
+  const mountTimeRef = useRef(Date.now());
+  const renderCount = useRef(0);
+  const lastNavigationCheckTime = useRef(0);
+  
+  // CRITICAL FIX: Add immediate check for active navigation before rendering
+  // This will run on every render before any other code
+  useEffect(() => {
+    // THIS IS HIGH PRIORITY - Increment the render counter immediately
+    renderCount.current += 1;
+    
+    // Use an IIFE to run this check synchronously
+    (async () => {
+      try {
+        // Only check once per 500ms to avoid excessive AsyncStorage reads
+        const now = Date.now();
+        if (now - lastNavigationCheckTime.current < 500) {
+          return;
+        }
+        
+        lastNavigationCheckTime.current = now;
+        
+        // Direct checks for critical navigation flags
+        const [detailNavigation, cosmicNavigation, tabsShouldHide] = await Promise.all([
+          AsyncStorage.getItem('navigating_to_detail'),
+          AsyncStorage.getItem('navigating_to_cosmic_ai'),
+          AsyncStorage.getItem('TABS_SHOULD_HIDE')
+        ]);
+        
+        const shouldBlock = 
+          detailNavigation === 'true' || 
+          cosmicNavigation === 'true' || 
+          tabsShouldHide === 'true';
+        
+        // If any flags are active, immediately block rendering
+        if (shouldBlock && shouldRender) {
+          console.log(`TabLayout - BLOCKING RENDER (count: ${renderCount.current}) due to active navigation flags`);
+          setShouldRender(false);
+        }
+      } catch (error) {
+        console.error('Error in immediate navigation check:', error);
+      }
+    })();
+  }, []); // Run this only once on mount to avoid adding to the render cycle
+  
+  const checkDirectRouteLocks = useCallback(async () => {
+    try {
+      const [lockedOnDetail, tabsShouldHide, detailScreenTime, cosmicScreenTime] = await Promise.all([
+        AsyncStorage.getItem('LOCKED_ON_DETAIL_SCREEN'),
+        AsyncStorage.getItem('TABS_SHOULD_HIDE'),
+        AsyncStorage.getItem('DETAIL_SCREEN_SHOWN_AT'),
+        AsyncStorage.getItem('COSMIC_SCREEN_SHOWN_AT')
+      ]);
+      
+      if (lockedOnDetail === 'true' || tabsShouldHide === 'true') {
+        console.log('TabLayout - Direct route lock detected, hiding tabs');
+        setShouldRender(false);
+        setIsLocked(true);
+        return true;
+      }
+      
+      const now = Date.now();
+      const checkRecentScreen = (timestamp: string | null, name: string) => {
+        if (!timestamp) return false;
+        const time = parseInt(timestamp, 10);
+        if (isNaN(time)) return false;
+        
+        const timeSince = now - time;
+        if (timeSince < 5000) {
+          console.log(`TabLayout - ${name} screen shown ${timeSince}ms ago, hiding tabs`);
+          return true;
+        }
+        return false;
+      };
+      
+      const isRecentDetailScreen = checkRecentScreen(detailScreenTime, 'Detail');
+      const isRecentCosmicScreen = checkRecentScreen(cosmicScreenTime, 'Cosmic AI');
+      
+      if (isRecentDetailScreen || isRecentCosmicScreen) {
+        setShouldRender(false);
+        return true;
+      }
+      
+      if (isLocked) {
+        setIsLocked(false);
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error checking direct route locks:', error);
+      return false;
+    }
+  }, [isLocked]);
+  
+  const checkNavigationStatus = useCallback(async () => {
+    try {
+      const now = Date.now();
+      
+      if (now - lastCheck.current < 1000) { 
+        return;
+      }
+      
+      lastCheck.current = now;
+      
+      const isDirectlyLocked = await checkDirectRouteLocks();
+      if (isDirectlyLocked) {
+        return;
+      }
+      
+      const [
+        navigatingToDetail, 
+        navigatingToAddFunds, 
+        navigatingToCosmicAI,
+        detailProtectionStartedAt,
+        addFundsProtectionStartedAt,
+        cosmicAIProtectionStartedAt,
+        appLaunchTimestamp
+      ] = await Promise.all([
+        AsyncStorage.getItem('navigating_to_detail'),
+        AsyncStorage.getItem('navigating_to_add_funds'),
+        AsyncStorage.getItem('navigating_to_cosmic_ai'),
+        AsyncStorage.getItem('detail_protection_started_at'),
+        AsyncStorage.getItem('add_funds_protection_started_at'),
+        AsyncStorage.getItem('cosmic_ai_protection_started_at'),
+        AsyncStorage.getItem('app_launch_timestamp')
+      ]);
+      
+      let timestampProtectionActive = false;
+      const checkTimestampProtection = (startTimeString: string | null, name: string) => {
+        if (!startTimeString) return false;
+        const timestamp = parseInt(startTimeString, 10);
+        if (isNaN(timestamp)) return false;
+        const diff = now - timestamp;
+        if (diff < 10000) { // 10 second protection
+          console.log(`TabLayout - ${name} protection active for ${diff}ms`);
+          return true;
+        }
+        return false;
+      };
+      
+      timestampProtectionActive = 
+        checkTimestampProtection(detailProtectionStartedAt, 'Detail') ||
+        checkTimestampProtection(addFundsProtectionStartedAt, 'Add funds') ||
+        checkTimestampProtection(cosmicAIProtectionStartedAt, 'Cosmic AI');
+      
+      let isFirstLaunch = false;
+      if (isFirstMount && appLaunchTimestamp) {
+        const launchTime = parseInt(appLaunchTimestamp, 10);
+        if (!isNaN(launchTime)) {
+          const timeSinceAppLaunch = now - launchTime;
+          if (timeSinceAppLaunch < 15000) {
+            console.log(`TabLayout - First app launch detected ${timeSinceAppLaunch}ms ago, will initially hide tabs`);
+            isFirstLaunch = true;
+          }
+        }
+      }
+      
+      const shouldBeHiddenBasedOnFlags = 
+        navigatingToDetail === 'true' || 
+        navigatingToAddFunds === 'true' || 
+        navigatingToCosmicAI === 'true' ||
+        timestampProtectionActive ||
+        isFirstLaunch;
+      
+      setShouldRender(currentActualRenderState => {
+        const newCalculatedRenderState = !shouldBeHiddenBasedOnFlags;
+        if (newCalculatedRenderState !== currentActualRenderState) {
+          if (newCalculatedRenderState === true) { // Transitioning from hidden to shown
+            console.log('TabLayout - Navigation flags cleared, SHOWING tabs.');
+            // Proactively clear all navigation flags that CoachesScreen might check
+            Promise.all([
+              AsyncStorage.removeItem('navigating_to_detail'),
+              AsyncStorage.removeItem('navigating_to_add_funds'),
+              AsyncStorage.removeItem('navigating_to_cosmic_ai'),
+              AsyncStorage.removeItem('detail_protection_started_at'),
+              AsyncStorage.removeItem('add_funds_protection_started_at'),
+              AsyncStorage.removeItem('cosmic_ai_protection_started_at'),
+              AsyncStorage.removeItem('detail_flag_set_at'),
+              AsyncStorage.removeItem('add_funds_flag_set_at'),
+              AsyncStorage.removeItem('cosmic_ai_flag_set_at')
+            ]).catch(err => console.error('Failed to clear navigation flags:', err));
+          } else {
+            console.log('TabLayout - Special navigation active, HIDING tabs based on flags.');
+          }
+          return newCalculatedRenderState;
+        }
+        return currentActualRenderState; // No change needed
+      });
+      
+      // When we're marking the component as no longer in first mount mode
+      if (isFirstMount && !isFirstLaunch) {
+        setIsFirstMount(false);
+      }
+      
+      // Construct the new navigation state object first
+      const newNavigationFlags = {
+        navigatingToDetail: navigatingToDetail === 'true',
+        navigatingToAddFunds: navigatingToAddFunds === 'true',
+        navigatingToCosmicAI: navigatingToCosmicAI === 'true',
+        protectionActive: timestampProtectionActive
+      };
+
+      // Use a functional update for setNavigationState to avoid re-renders if state hasn't changed
+      setNavigationState(currentNavigationState => {
+        if (
+          currentNavigationState.navigatingToDetail !== newNavigationFlags.navigatingToDetail ||
+          currentNavigationState.navigatingToAddFunds !== newNavigationFlags.navigatingToAddFunds ||
+          currentNavigationState.navigatingToCosmicAI !== newNavigationFlags.navigatingToCosmicAI ||
+          currentNavigationState.protectionActive !== newNavigationFlags.protectionActive
+        ) {
+          // Only return a new object (and cause re-render) if there's an actual change
+          console.log('TabLayout: Navigation state changed, updating state.', newNavigationFlags);
+          return newNavigationFlags;
+        }
+        // Otherwise, return the current state (same reference) to prevent re-render
+        return currentNavigationState;
+      });
+      
+    } catch (error) {
+      console.error('Error checking navigation status in tabs:', error);
+    }
+  }, [isFirstMount]);
+
+  // Effect to run on first mount only - record initial app launch timestamp
+  useEffect(() => {
+    const recordAppLaunch = async () => {
+      try {
+        // IMPORTANT: Clear all navigation flags on fresh app start
+        await Promise.all([
+          AsyncStorage.removeItem('navigating_to_detail'),
+          AsyncStorage.removeItem('navigating_to_add_funds'),
+          AsyncStorage.removeItem('navigating_to_cosmic_ai'),
+          AsyncStorage.removeItem('detail_protection_started_at'),
+          AsyncStorage.removeItem('add_funds_protection_started_at'),
+          AsyncStorage.removeItem('cosmic_ai_protection_started_at'),
+          AsyncStorage.removeItem('detail_flag_set_at'),
+          AsyncStorage.removeItem('add_funds_flag_set_at'), 
+          AsyncStorage.removeItem('cosmic_ai_flag_set_at'),
+          AsyncStorage.removeItem('LOCKED_ON_DETAIL_SCREEN'),
+          AsyncStorage.removeItem('TABS_SHOULD_HIDE'),
+          AsyncStorage.removeItem('DETAIL_SCREEN_SHOWN_AT'),
+          AsyncStorage.removeItem('COSMIC_SCREEN_SHOWN_AT')
+        ]);
+        console.log('TabLayout - Cleared all navigation flags on app startup');
+        
+        // If this is the very first time we're mounting, record the launch timestamp
+        const now = Date.now();
+        await AsyncStorage.setItem('app_launch_timestamp', now.toString());
+        console.log('TabLayout - Recorded app launch timestamp:', now);
+        
+        // Set a timeout to clear app launch flag after a safe interval
+        setTimeout(async () => {
+          await AsyncStorage.removeItem('app_launch_timestamp');
+          console.log('TabLayout - Cleared app launch timestamp after safe interval');
+        }, 30000); // Clear after 30 seconds
+      } catch (error) {
+        console.error('Error recording app launch:', error);
+      }
+    };
+    
+    // Call immediately, but also defer to ensure it runs after initial rendering cycle
+    recordAppLaunch();
+    
+    // Use InteractionManager to ensure this doesn't block UI/animation
+    InteractionManager.runAfterInteractions(() => {
+      recordAppLaunch();
+    });
+  }, []);
+  
+  // Optimization: Create a single cleanup function for all stale flags
+  const cleanupStaleFlags = useCallback(async () => {
+    try {
+      const now = Date.now();
+      
+      // Get all the flags and timestamps at once
+      const [
+        navigatingToDetail,
+        detailFlagSetAt,
+        detailProtectionStartedAt,
+        navigatingToAddFunds,
+        addFundsSetAt,
+        navigatingToCosmicAI,
+        cosmicAISetAt
+      ] = await Promise.all([
+        AsyncStorage.getItem('navigating_to_detail'),
+        AsyncStorage.getItem('detail_flag_set_at'),
+        AsyncStorage.getItem('detail_protection_started_at'),
+        AsyncStorage.getItem('navigating_to_add_funds'),
+        AsyncStorage.getItem('add_funds_set_at'),
+        AsyncStorage.getItem('navigating_to_cosmic_ai'),
+        AsyncStorage.getItem('cosmic_ai_set_at')
+      ]);
+      
+      // Helper function to check and clean up a flag
+      const cleanupFlag = async (flag: string | null, setAtKey: string | null, flagKey: string, maxAge: number) => {
+        if (flag === 'true' && setAtKey) {
+          const timestamp = parseInt(setAtKey, 10);
+          if (!isNaN(timestamp) && now - timestamp > maxAge) {
+            console.log(`TabLayout - Cleaning up stale ${flagKey} flag`);
+            await AsyncStorage.removeItem(flagKey);
+            await AsyncStorage.removeItem(setAtKey.replace('_set_at', '_flag_set_at'));
+            return true;
+          }
+        }
+        return false;
+      };
+      
+      // Clean up all protection timestamps if they're too old
+      const checkProtection = async (timeKey: string | null, keyName: string, maxAge: number = 15000) => {
+        if (timeKey) {
+          const timestamp = parseInt(timeKey, 10);
+          if (!isNaN(timestamp) && now - timestamp > maxAge) {
+            console.log(`TabLayout - Cleaning up stale ${keyName} protection timestamp`);
+            await AsyncStorage.removeItem(keyName);
+            return true;
+          }
+        }
+        return false;
+      };
+      
+      // Clean up protection timestamps
+      await Promise.all([
+        checkProtection(detailProtectionStartedAt, 'detail_protection_started_at'),
+        checkProtection(detailFlagSetAt, 'detail_flag_set_at', 10000),
+        
+        // Clean up stale navigation flags
+        cleanupFlag(navigatingToDetail, detailFlagSetAt, 'navigating_to_detail', 10000),
+        cleanupFlag(navigatingToAddFunds, addFundsSetAt, 'navigating_to_add_funds', 10000),
+        cleanupFlag(navigatingToCosmicAI, cosmicAISetAt, 'navigating_to_cosmic_ai', 10000)
+      ]);
+      
+      // If any cleanup was done, check navigation status again
+      await checkNavigationStatus();
+      
+    } catch (error) {
+      console.error('Error in cleanup stale flags:', error);
+    }
+  }, [checkNavigationStatus]);
+  
+  // React to app state changes
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      // When app becomes active again, check navigation status
+      if (
+        appState.current.match(/inactive|background/) && 
+        nextAppState === 'active'
+      ) {
+        checkNavigationStatus();
+        cleanupStaleFlags();
+      }
+      
+      appState.current = nextAppState;
+    });
+    
+    return () => {
+      subscription.remove();
+    };
+  }, [checkNavigationStatus, cleanupStaleFlags]);
+  
+  // Check navigation status and set up more efficient interval checking
+  useEffect(() => {
+    // Check immediately on mount
+    checkNavigationStatus();
+    
+    // Use a less frequent interval for regular checks (reduces battery/performance impact)
+    checkInterval.current = setInterval(() => {
+      checkNavigationStatus();
+    }, 1000); // Reduced from 200ms to 1000ms
+    
+    // Set up a less frequent cleanup interval (5 seconds is fine for cleanup)
+    const cleanupIntervalId = setInterval(cleanupStaleFlags, 5000);
+    
+    return () => {
+      if (checkInterval.current) {
+        clearInterval(checkInterval.current);
+      }
+      clearInterval(cleanupIntervalId);
+    };
+  }, [checkNavigationStatus, cleanupStaleFlags]);
+  
+  // Memoize tab configuration to avoid recreation on re-renders
+  // IMPORTANT: This hook MUST be called before any conditional returns
+  const tabScreens = useMemo(() => {
+    console.log('TabLayout: useMemo for tabScreens executed');
+    return (
+      <Tabs
+        screenOptions={{
+          tabBarActiveTintColor: '#6366f1',
+          tabBarInactiveTintColor: '#94a3b8',
+          headerShown: false,
+          tabBarStyle: {
+            borderTopWidth: 1,
+            borderTopColor: '#e2e8f0',
+            backgroundColor: '#ffffff',
+            height: Platform.OS === 'ios' ? 80 : 60,
+            paddingBottom: Platform.OS === 'ios' ? 25 : 10,
+            paddingTop: 10,
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            width: '100%',
+            zIndex: 1000,
+            display: shouldRender ? 'flex' : 'none',
+            ...Platform.select({
+              ios: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: -2 },
+                shadowOpacity: 0.2,
+                shadowRadius: 4,
+              },
+              android: {
+                elevation: 10,
+              },
+            }),
+          },
+          tabBarItemStyle: {
+            padding: 5,
+          },
+          tabBarLabelStyle: {
+            fontSize: 12,
+            fontWeight: '600',
+            marginBottom: Platform.OS === 'ios' ? 5 : 3,
+          },
+        }}
+        initialRouteName="index"
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            headerShown: false,
+            tabBarIcon: ({ focused, size, color }) => (
+              <View style={styles.iconContainer}>
+                {focused ? (
+                  <View style={styles.activeTab}>
+                    <Ionicons name="home" size={size} color="#6366f1" />
+                  </View>
+                ) : (
+                  <Ionicons name="home-outline" size={size} color={color} />
+                )}
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="favorites"
+          options={{
+            title: 'Favorites',
+            headerShown: false,
+            tabBarIcon: ({ focused, size, color }) => (
+              <View style={styles.iconContainer}>
+                {focused ? (
+                  <View style={styles.activeTab}>
+                    <Ionicons name="heart" size={size} color="#6366f1" />
+                  </View>
+                ) : (
+                  <Ionicons name="heart-outline" size={size} color={color} />
+                )}
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: 'Settings',
+            headerShown: false,
+            tabBarIcon: ({ focused, size, color }) => (
+              <View style={styles.iconContainer}>
+                {focused ? (
+                  <View style={styles.activeTab}>
+                    <Ionicons name="settings" size={size} color="#6366f1" />
+                  </View>
+                ) : (
+                  <Ionicons name="settings-outline" size={size} color={color} />
+                )}
+              </View>
+            ),
+          }}
+        />
+      </Tabs>
+    );
+  }, [shouldRender]);
+  
+  // Don't render tabs at all if there's no authenticated user
+  if (!user) {
+    console.log('TabLayout: No authenticated user, returning null (ideally handled by root layout)');
+    return null;
+  }
+
+  // AGGRESSIVE FIX FOR OLD CLIENT: Block all tab rendering for the first few seconds
+  const now = Date.now();
+  const timeSinceMount = now - mountTimeRef.current;
+  if (timeSinceMount < 3000) { // Block for the first 3 seconds regardless of other conditions
+    console.log(`TabLayout: AGGRESSIVE EARLY BLOCK - App just started (${timeSinceMount}ms ago)`);
+    return null; // Return null instead of an empty view for maximum compatibility
+  }
+
+  // CRITICAL FIX: Emergency blocker for navigation conflicts
+  // This will run right before rendering to catch any issues
+  if (renderCount.current > 2) {
+    // After the second render, check for recent navigations
+    const now = Date.now();
+    // Check if the app just started and navigation is recent (within 10 seconds)
+    const appJustStarted = now - mountTimeRef.current < 10000;
+    
+    if (appJustStarted) {
+      // During initial app launch, only render if explicitly allowed
+      const shouldShowDuringLaunch = !isFirstMount;
+      if (!shouldShowDuringLaunch) {
+        console.log(`TabLayout: EMERGENCY RENDER BLOCK - App just started (${now - mountTimeRef.current}ms ago)`);
+        // Return a totally empty view to avoid any visual disruption
+        return <View style={{display: 'none'}} />;
+      }
+    }
+  }
+
+  console.log(`TabLayout: Rendering with shouldRender: ${shouldRender} (Tab bar display: ${shouldRender ? 'flex' : 'none'})`);
+  return tabScreens;
+}
+
+// Memoize the styles to prevent recreation on every render
+const styles = StyleSheet.create({
+  iconContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 34,
+    height: 34,
+  },
+  activeTab: {
+    backgroundColor: '#eff6ff',
+    borderRadius: 8,
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
+
+export default React.memo(TabLayout);

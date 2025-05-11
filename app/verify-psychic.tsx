@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useState, useRef } from 'react';
 import {
   View,
@@ -45,7 +48,7 @@ export default function VerifyPsychicScreen() {
       if (result.success && result.verificationId) {
         console.log('[Twilio] Verification code sent successfully. Verification ID:', result.verificationId);
         trackEvent('verification_code_sent', { success: true, verificationId: result.verificationId });
-        router.push({
+        router.navigate({
           pathname: '/verify-details',
           params: { phone, verificationId: result.verificationId }
         });

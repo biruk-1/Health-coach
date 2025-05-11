@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,9 @@ import {
   Alert,
   Animated,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { generateHealthCoachingResponse } from '../services/openai';
@@ -21,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePurchases } from '../context/PurchaseContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRandomHealthCoachesForSpecialty } from '../services/health-coach-data';
+import { useAppNavigation, navigate } from '../lib/navigation';
 
 type Message = {
   id: string;
@@ -33,6 +36,7 @@ type Message = {
 };
 
 export default function HealthCoachChatScreen() {
+  const { navigateToAddFunds } = useAppNavigation();
   const router = useRouter();
   const { user } = useAuth();
   const { balance, setBalance } = usePurchases();
@@ -49,23 +53,32 @@ export default function HealthCoachChatScreen() {
   useEffect(() => {
     const loadBalance = async () => {
       try {
+        // For first time users, ensure we have a default balance
         const storedBalance = await AsyncStorage.getItem('credits_balance');
-        const newBalance = storedBalance ? parseInt(storedBalance, 10) : 0;
-        setBalance(newBalance);
-        if (newBalance <= 0) {
-          router.push('/cosmic-ai-subscription');
+        
+        // If no balance exists yet (new users), set a default value
+        if (storedBalance === null) {
+          // Give new users 3 free credits
+          const defaultCredits = 3;
+          await AsyncStorage.setItem('credits_balance', defaultCredits.toString());
+          setBalance(defaultCredits);
+          console.log('New user detected, setting default balance:', defaultCredits);
+        } else {
+          const newBalance = parseInt(storedBalance, 10);
+          setBalance(newBalance);
         }
       } catch (error) {
         console.error('Error loading balance:', error);
-        router.push('/cosmic-ai-subscription');
+        // Default to 1 credit on error to prevent navigation loops
+        setBalance(1);
       }
     };
     loadBalance();
   }, []);
 
-  // Update welcome message
+  // Update welcome message without navigation side effects
   useEffect(() => {
-    if (isInitialLoad && balance > 0) {
+    if (isInitialLoad) {
       let welcomeMessage = "Hello! I'm your personal AI health coach. How can I help you today?";
       if (user && user.fullName) {
         welcomeMessage = `Hello ${user.fullName.split(' ')[0]}! I'm your personal AI health coach. How can I help you today?`;
@@ -81,27 +94,23 @@ export default function HealthCoachChatScreen() {
       }]);
       setIsInitialLoad(false);
     }
-  }, [user, isInitialLoad, balance]);
+  }, [user, isInitialLoad]);
 
-  // Sync balance when returning from subscription screen
-  useFocusEffect(
-    React.useCallback(() => {
-      const syncBalance = async () => {
-        try {
-          const storedBalance = await AsyncStorage.getItem('credits_balance');
-          const newBalance = storedBalance ? parseInt(storedBalance, 10) : 0;
-          setBalance(newBalance);
-          if (newBalance <= 0) {
-            router.push('/cosmic-ai-subscription');
-          }
-        } catch (error) {
-          console.error('Error syncing balance:', error);
-          router.push('/cosmic-ai-subscription');
-        }
-      };
-      syncBalance();
-    }, [])
-  );
+  // Sync balance without navigation side effects
+  useEffect(() => {
+    const syncBalance = async () => {
+      try {
+        const storedBalance = await AsyncStorage.getItem('credits_balance');
+        const newBalance = storedBalance ? parseInt(storedBalance, 10) : 0;
+        setBalance(newBalance);
+        // Removed auto-navigation which was causing loops
+      } catch (error) {
+        console.error('Error syncing balance:', error);
+        // Removed auto-navigation which was causing loops
+      }
+    };
+    syncBalance();
+  }, []);
 
   // Retry logic for errors
   useEffect(() => {
@@ -148,6 +157,7 @@ export default function HealthCoachChatScreen() {
       const newBalance = balance - 1;
       setBalance(newBalance);
       await AsyncStorage.setItem('credits_balance', newBalance.toString());
+      console.log('Credit deducted. New balance:', newBalance);
 
       const newAiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -289,12 +299,24 @@ export default function HealthCoachChatScreen() {
     );
   };
 
+  // Simplified back function
+  const handleBackPress = useCallback(() => {
+    console.log('Navigating back to home from cosmic AI chat');
+    router.replace('/(tabs)');
+  }, [router]);
+  
+  // Simplified add funds function
+  const handleAddFunds = useCallback(() => {
+    console.log('Navigating to add funds from cosmic AI chat');
+    router.push('/settings/add-funds');
+  }, [router]);
+
   if (balance === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar style="light" />
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
             <Ionicons name="arrow-back" size={24} color="#ffffff" />
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
@@ -310,10 +332,10 @@ export default function HealthCoachChatScreen() {
           </Text>
           <TouchableOpacity
             style={styles.creditButton}
-            onPress={() => router.push('/cosmic-ai-chat')}
+            onPress={handleAddFunds}
           >
-            <Text style={styles.creditButtonText}>Start Chatting</Text>
-            <Ionicons name="chatbubbles" size={20} color="#ffffff" style={styles.buttonIcon} />
+            <Text style={styles.creditButtonText}>Add Funds</Text>
+            <Ionicons name="add-circle" size={20} color="#ffffff" style={styles.buttonIcon} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -324,7 +346,7 @@ export default function HealthCoachChatScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>

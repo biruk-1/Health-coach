@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { api } from '../services/api';
 import { useSupabase } from './SupabaseContext';
 import { trackEvent, identifyUser, resetUser } from '../lib/posthog';
@@ -8,231 +8,236 @@ import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 const AUTH_STORAGE_KEY = '@auth_data';
 
-type User = {
+type UserData = {
   id: string;
-  email: string | undefined;
-  role?: string;
+  email: string;
   fullName?: string;
-  birthDate?: string | null;
+  phone?: string;
+  birthDate?: string;
+  birthTime?: string;
+  birthLocation?: string;
+  height?: string;
+  interests?: string[];
 };
 
 type AuthContextType = {
-  user: User | null;
+  user: UserData | null;
   session: Session | null;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  register: (data: { email: string; password: string; fullName: string; phone?: string; role?: 'user' | 'psychic' }) => Promise<{ success: boolean; error?: string }>;
+  isLoading: boolean;
+  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUserState: (updatedUser: Partial<UserData>) => void;
 };
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  session: null,
+  isLoading: true,
+  signUp: async () => {},
+  signIn: async () => {},
+  logout: async () => {},
+  updateUserState: () => {},
+});
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+export const useAuth = () => useContext(AuthContext);
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+  const [user, setUser] = useState<UserData | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const sessionRecoveryAttempted = useRef(false);
 
-  const updateUserState = (supabaseUser: SupabaseUser | null) => {
-    if (!supabaseUser) {
-      setUser(null);
-      return;
-    }
-
-    const userData: User = {
-      id: supabaseUser.id,
-      email: supabaseUser.email,
-      role: supabaseUser.user_metadata?.role || 'user',
-      fullName: supabaseUser.user_metadata?.full_name,
-      birthDate: supabaseUser.user_metadata?.birth_date,
-      // Include all other relevant user metadata fields here
-    };
-    setUser(userData);
-    return userData;
-  };
-
-  // Attempt to recover a session when initial load fails
-  const recoverSession = async () => {
-    if (sessionRecoveryAttempted.current) return false;
+  const updateUserState = (updatedUser: Partial<UserData>) => {
+    if (!user) return;
     
-    try {
-      console.log('Attempting to recover session...');
-      sessionRecoveryAttempted.current = true;
-      
-      // Force refresh the session
-      const { data, error } = await supabase.auth.refreshSession();
-      
-      if (error || !data.session) {
-        console.error('Session recovery failed:', error?.message || 'No session returned');
-        return false;
-      }
-      
-      // Update our state with the recovered session
-      setSession(data.session);
-      const userData = updateUserState(data.session.user);
-      
-      if (userData) {
-        await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
-          session: data.session,
-          user: userData
-        }));
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Error recovering session:', error);
-      return false;
-    }
+    setUser(prev => {
+      if (!prev) return null;
+      return { ...prev, ...updatedUser };
+    });
   };
 
   useEffect(() => {
-    let mounted = true;
-    
-    const initialize = async () => {
+    const initializeAuth = async () => {
       try {
-        await loadPersistedSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
         
-        // If we still don't have a session, try to recover it
-        if (mounted && !session && !user) {
-          const recovered = await recoverSession();
-          if (!recovered && mounted) {
-            // Final loading state update if recovery failed
-            setLoading(false);
+        if (error) {
+          console.error('Error getting session:', error.message);
+          setIsLoading(false);
+          return;
+        }
+        
+        if (session) {
+          setSession(session);
+          
+          // Load user data
+          const { data, error: userError } = await api.auth.me();
+          
+          if (userError || !data) {
+            console.error('Error loading user data:', userError);
+            
+            // Try to recover if we have persistent data
+            const recovered = await loadPersistedSession();
+            if (!recovered) {
+              setIsLoading(false);
+            }
+            return;
           }
+          
+          // Update user state
+          setUser(data);
+          
+          // Persist data
+          await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+            session,
+            user: data
+          }));
+          
+        } else if (!sessionRecoveryAttempted.current) {
+          // Try to recover from stored session data
+          sessionRecoveryAttempted.current = true;
+          const recovered = await loadPersistedSession();
+          if (!recovered) {
+            setIsLoading(false);
+          }
+        } else {
+          setIsLoading(false);
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
-        if (mounted) {
-          setLoading(false);
-        }
+        setIsLoading(false);
       }
     };
     
-    initialize();
+    initializeAuth();
     
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      if (!mounted) return;
-      
-      console.log('Auth state changed:', event, 'Session:', !!currentSession);
-      if (currentSession) {
-        setSession(currentSession);
-        const userData = updateUserState(currentSession.user);
-        if (userData) {
-          await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
-            session: currentSession,
-            user: userData
-          }));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event);
+        setSession(session);
+        
+        if (session) {
+          try {
+            const { data, error } = await api.auth.me();
+            if (error || !data) {
+              console.error('Error loading user data on auth change:', error);
+              setIsLoading(false);
+              return;
+            }
+            
+            setUser(data);
+            
+            await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+              session,
+              user: data
+            }));
+          } catch (error) {
+            console.error('Error during auth change:', error);
+          } finally {
+            setIsLoading(false);
+          }
+        } else {
+          setUser(null);
+          await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+          setIsLoading(false);
         }
-      } else {
-        setSession(null);
-        setUser(null);
-        await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
       }
-    });
-
+    );
+    
     return () => {
-      mounted = false;
-      subscription.unsubscribe();
+      subscription?.unsubscribe();
     };
   }, []);
-
+  
   const loadPersistedSession = async () => {
     try {
       const storedData = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+      
       if (storedData) {
         const { session: storedSession, user: storedUser } = JSON.parse(storedData);
-        // Make sure the stored session is valid
-        if (storedSession && storedSession.access_token) {
-          setSession(storedSession);
-          setUser(storedUser);
-        } else {
-          console.log('Stored session is invalid, clearing local storage');
-          await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+        
+        if (storedSession && storedUser) {
+          // Validate stored session
+          const { data: { session: validSession }, error } = await supabase.auth.getSession();
+          
+          if (error) {
+            console.error('Failed to validate stored session:', error);
+            await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+            setIsLoading(false);
+            return false;
+          }
+          
+          if (validSession) {
+            setSession(storedSession);
+            setUser(storedUser);
+            setIsLoading(false);
+            return true;
+          } else {
+            console.log('Stored session is invalid, removing');
+            await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+          }
         }
       }
+      setIsLoading(false);
+      return false;
     } catch (error) {
       console.error('Error loading persisted session:', error);
       await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-    } finally {
-      setLoading(false);
+      setIsLoading(false);
+      return false;
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, fullName: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
+      });
+      
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-
-      if (error) {
-        console.error('Login error:', error.message);
-        return { success: false, error: error.message };
-      }
-
-      if (data?.session) {
-        setSession(data.session);
-        const userData = updateUserState(data.session.user);
-        if (userData) {
-          await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
-            session: data.session,
-            user: userData
-          }));
-        }
-        return { success: true };
-      }
-
-      return { success: false, error: 'No session data returned' };
-    } catch (error) {
-      console.error('Login error:', error);
-      return { success: false, error: 'An unexpected error occurred' };
-    }
-  };
-
-  const register = async (data: { email: string; password: string; fullName: string; phone?: string; role?: 'user' | 'psychic' }) => {
-    try {
-      const { token } = await api.auth.register(data);
       
-      if (token) {
-        // Get the session after successful registration
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('Session error after registration:', sessionError.message);
-          return { success: false, error: sessionError.message };
-        }
-
-        if (session) {
-          setSession(session);
-          const userData = updateUserState(session.user);
-          if (userData) {
-            await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
-              session,
-              user: userData
-            }));
-          }
-          return { success: true };
-        }
+      if (error) {
+        throw error;
       }
-
-      return { success: false, error: 'No session data returned' };
     } catch (error) {
-      console.error('Registration error:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'An unexpected error occurred' };
+      throw error;
     }
   };
 
   const logout = async () => {
     try {
       const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
+      if (error) {
+        throw error;
+      }
       await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-      setSession(null);
       setUser(null);
+      setSession(null);
     } catch (error) {
-      console.error('Logout error:', error);
       throw error;
     }
   };
@@ -242,23 +247,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      loading,
-      login,
-      register,
-      logout,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        isLoading,
+        signUp,
+        signIn,
+        logout,
+        updateUserState,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
+};

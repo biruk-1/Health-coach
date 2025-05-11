@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React from 'react';
 import {
   View,
@@ -97,21 +100,21 @@ export default function HelpScreen() {
         <Text style={styles.sectionTitle}>Quick Links</Text>
         <TouchableOpacity 
           style={styles.linkItem}
-          onPress={() => router.push('/legal/terms')}
+          onPress={() => router.navigate('/legal/terms')}
         >
           <Text style={styles.linkText}>Terms of Service</Text>
           <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.linkItem}
-          onPress={() => router.push('/legal/privacy')}
+          onPress={() => router.navigate('/legal/privacy')}
         >
           <Text style={styles.linkText}>Privacy Policy</Text>
           <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.linkItem}
-          onPress={() => router.push('/legal/guidelines')}
+          onPress={() => router.navigate('/legal/guidelines')}
         >
           <Text style={styles.linkText}>Community Guidelines</Text>
           <Ionicons name="chevron-forward" size={20} color="#94a3b8" />

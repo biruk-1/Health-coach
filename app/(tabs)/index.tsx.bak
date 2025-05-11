@@ -1,0 +1,1399 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Platform,
+  ImageBackground,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+  TextInput,
+  ScrollView,
+  Dimensions,
+  StatusBar,
+  SafeAreaView,
+  Image,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../../lib/supabase';
+import { getHealthCoaches, HealthCoach, initializeDatabase } from '../../services/database';
+import { useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAppNavigation } from '../../lib/navigation';
+import debounce from 'lodash/debounce';
+import React from 'react';
+
+type PractitionerType = 'nutrition' | 'fitness' | 'mental' | 'sleep' | 'wellness' | 'all';
+
+type GlobalNavProtectedReason = 'detail' | 'funds' | 'cosmic_ai' | 'general_timestamp' | 'none';
+
+const { width } = Dimensions.get('window');
+const isSmallScreen = width < 375;
+const isLargeScreen = width > 428;
+
+const getRandomPastelColor = (name: string) => {
+  const hash = name?.split('').reduce((acc, char) => char.charCodeAt(0) + acc, 0) || 0;
+  const hue = hash % 360;
+  return `hsl(${hue}, 70%, 80%)`;
+};
+
+const getInitials = (name: string) => {
+  if (!name) return '';
+  return name.split(' ')[0][0].toUpperCase();
+};
+
+// Cache for tracking request states
+const apiRequestCache = {
+  currentRequestId: 0,
+  latestCompletedRequestId: 0
+};
+
+// Increase the cooldown period to prevent excessive API calls
+const FETCH_COOLDOWN = 2000; // 2 seconds cooldown between fetches (increased from 1000ms)
+
+// Create a singleton for tracking state across component mounts/unmounts
+const globalState = {
+  lastCoachRender: 0,
+  hasCompletedInitialLoad: false,
+  cachedCoaches: [] as HealthCoach[],
+  activeFetchId: 0
+};
+
+export default function CoachesScreen() {
+  const router = useRouter();
+  const navigation = useAppNavigation();
+  const [practitioners, setPractitioners] = useState<HealthCoach[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [totalCoaches, setTotalCoaches] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMorePages, setHasMorePages] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [selectedType, setSelectedType] = useState<PractitionerType>('all');
+  const [isNavigating, setIsNavigating] = useState(false);
+  const isMounted = useRef(true);
+  const prevSelectedType = useRef<PractitionerType>(selectedType);
+  const prevSearchTerm = useRef(searchTerm);
+  const currentPractitioners = useRef<HealthCoach[]>([]);
+  const lastFetchTime = useRef(0);
+  const mountTimeRef = useRef(Date.now());
+  const initialLoadDoneRef = useRef(false);
+  const initialUnloadDoneRef = useRef(false);
+  const cachedResult = useRef(globalState.cachedCoaches);
+  const [isGlobalNavProtected, setIsGlobalNavProtected] = useState(false);
+  const [globalNavProtectedReason, setGlobalNavProtectedReason] = useState<GlobalNavProtectedReason>('none');
+  
+  // Keep track of the current state in refs for comparison
+  useEffect(() => {
+    currentPractitioners.current = practitioners;
+  }, [practitioners]);
+
+  useEffect(() => {
+    prevSelectedType.current = selectedType;
+  }, [selectedType]);
+
+  useEffect(() => {
+    prevSearchTerm.current = searchTerm;
+  }, [searchTerm]);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+      // Cancel any pending requests
+      apiRequestCache.currentRequestId++;
+    };
+  }, []);
+
+  const checkSupabaseConnection = useCallback(async () => {
+    try {
+      setConnectionStatus('checking');
+      const { data, error } = await supabase.from('health_coaches').select('id').limit(1);
+      if (error) throw error;
+      setConnectionStatus('connected');
+    } catch (err) {
+      console.error('Supabase connection check failed:', err);
+      setConnectionStatus('disconnected');
+    }
+  }, []);
+
+  const checkGlobalNavigationLock = useCallback(async (): Promise<[boolean, GlobalNavProtectedReason]> => {
+    console.log('CoachesScreen: Checking for global navigation locks...');
+    try {
+      const now = Date.now();
+      const [ 
+        navToDetail,
+        navToAddFunds,
+        navToCosmicAI,
+        detailProtectionStart,
+        addFundsProtectionStart,
+        cosmicAIProtectionStart
+      ] = await Promise.all([
+        AsyncStorage.getItem('navigating_to_detail'),
+        AsyncStorage.getItem('navigating_to_add_funds'),
+        AsyncStorage.getItem('navigating_to_cosmic_ai'),
+        AsyncStorage.getItem('detail_protection_started_at'),
+        AsyncStorage.getItem('add_funds_protection_started_at'),
+        AsyncStorage.getItem('cosmic_ai_protection_started_at')
+      ]);
+
+      if (navToDetail === 'true') return [true, 'detail'];
+      if (navToAddFunds === 'true') return [true, 'funds'];
+      if (navToCosmicAI === 'true') return [true, 'cosmic_ai'];
+
+      const checkTimestamp = (startTimeString: string | null): boolean => {
+        if (!startTimeString) return false;
+        const timestamp = parseInt(startTimeString, 10);
+        return !isNaN(timestamp) && (now - timestamp < 10000); // 10 second protection
+      };
+
+      if (checkTimestamp(detailProtectionStart) || 
+          checkTimestamp(addFundsProtectionStart) || 
+          checkTimestamp(cosmicAIProtectionStart)) {
+        return [true, 'general_timestamp'];
+      }
+      
+      console.log('CoachesScreen: No active global navigation locks found.');
+      return [false, 'none'];
+    } catch (error) {
+      console.error('CoachesScreen: Error checking global navigation lock:', error);
+      return [false, 'none']; // Default to not protected on error
+    }
+  }, []);
+
+  // Use a more reliable initialization approach
+  const initialize = useCallback(async () => {
+    if (!isMounted.current) return;
+
+    // ---> CHECK GLOBAL NAV LOCK AT THE START <---
+    const [isProtected, reason] = await checkGlobalNavigationLock();
+    
+    // Add a double-check for navigation flags here, ensuring the most recent state
+    const [detailFlag, cosmicFlag, addFundsFlag] = await Promise.all([
+      AsyncStorage.getItem('navigating_to_detail'),
+      AsyncStorage.getItem('navigating_to_cosmic_ai'),
+      AsyncStorage.getItem('navigating_to_add_funds')
+    ]);
+    
+    // If ANY flag is active, respect it regardless of the checkGlobalNavigationLock result
+    if (detailFlag === 'true' || cosmicFlag === 'true' || addFundsFlag === 'true' || isProtected) {
+      console.log(`CoachesScreen: Navigation lock active. Deferring initialization.`);
+      setIsGlobalNavProtected(true);
+      setGlobalNavProtectedReason(reason);
+      setIsLoading(false);
+      return;
+    }
+    
+    // If not protected, ensure state is reset
+    setIsGlobalNavProtected(false);
+    setGlobalNavProtectedReason('none');
+
+    const now = Date.now();
+    if (globalState.hasCompletedInitialLoad && now - globalState.lastCoachRender < 10000) {
+      console.log('Recent initialization detected, using cached data');
+      if (globalState.cachedCoaches && globalState.cachedCoaches.length > 0) {
+        console.log(`Setting cached ${globalState.cachedCoaches.length} coaches from global state`);
+        setPractitioners(globalState.cachedCoaches);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    try {
+      setIsLoading(true);
+      await initializeDatabase();
+      await checkSupabaseConnection();
+      
+      const initRequestId = ++apiRequestCache.currentRequestId;
+      console.log(`Initialization request ID: ${initRequestId}`);
+      globalState.activeFetchId = initRequestId;
+
+      if (initRequestId !== globalState.activeFetchId) {
+        console.log('Skipping initialization - newer request exists');
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const result = await getHealthCoaches({
+          page: 1,
+          pageSize: 20,
+          searchTerm: searchTerm || undefined, 
+          specialty: selectedType !== 'all' ? selectedType : undefined,
+        });
+
+        if (!isMounted.current || initRequestId !== globalState.activeFetchId) {
+          console.log(`Init request ${initRequestId} was superseded, skipping state update`);
+          return;
+        }
+
+        if (result?.coaches?.length > 0) {
+          console.log(`Initialization complete with ${result.coaches.length} coaches`);
+          setPractitioners(result.coaches);
+          setTotalCoaches(result.total || 0);
+          setHasMorePages(result.page < result.totalPages);
+          setCurrentPage(result.page || 1);
+          
+          globalState.cachedCoaches = result.coaches;
+          globalState.lastCoachRender = now;
+          globalState.hasCompletedInitialLoad = true;
+          apiRequestCache.latestCompletedRequestId = initRequestId;
+          initialLoadDoneRef.current = true;
+        } else {
+          console.warn('No coaches found during initialization');
+          setPractitioners([]);
+          setTotalCoaches(0);
+          initialLoadDoneRef.current = true;
+        }
+      } catch (error) {
+        console.error('Error during initial data fetch:', error);
+        if (isMounted.current && initRequestId === globalState.activeFetchId) {
+          setError('Failed to initialize. Please try again.');
+        }
+        initialLoadDoneRef.current = true;
+      } finally {
+        if (isMounted.current && initRequestId === globalState.activeFetchId) {
+          setIsLoading(false);
+        }
+      }
+    } catch (error) {
+      console.error('Initialization setup error:', error);
+      if (isMounted.current) {
+        setError('Failed to initialize setup. Please try again.');
+        setIsLoading(false);
+      }
+      initialLoadDoneRef.current = true;
+    }
+  }, [checkSupabaseConnection]);
+
+  const loadCoaches = useCallback(
+    async (page = 1, append = false) => {
+      if (!isMounted.current) return;
+      
+      const now = Date.now();
+      if (now - lastFetchTime.current < FETCH_COOLDOWN && !append) {
+        console.log(`Skipping loadCoaches call - cooldown period`);
+        return;
+      }
+      
+      if (now - mountTimeRef.current < 1000 && !initialLoadDoneRef.current) {
+        console.log('Skipping API call during initial render period');
+        return;
+      }
+      
+      const requestId = ++apiRequestCache.currentRequestId;
+      globalState.activeFetchId = requestId;
+      
+      try {
+        console.log(`==== LOAD COACHES START (request ID: ${requestId}) ====`);
+        
+        lastFetchTime.current = now;
+        setError(null);
+        
+        if (!isRefreshing && !append) setIsLoading(true);
+        if (append) setLoadingMore(true);
+
+        const pageSize = 20;
+        const searchParams = {
+          page,
+          pageSize,
+          searchTerm: searchTerm || undefined,
+          specialty: selectedType !== 'all' ? selectedType : undefined,
+        };
+
+        const result = await getHealthCoaches(searchParams);
+        
+        if (!isMounted.current || requestId !== globalState.activeFetchId) {
+          console.log(`Request ${requestId} was superseded, skipping state update`);
+          return;
+        }
+
+        if (result?.coaches) {
+          if (append) {
+            setPractitioners(prev => [...prev, ...result.coaches]);
+          } else {
+            setPractitioners(result.coaches);
+          }
+          setTotalCoaches(result.total || 0);
+          setHasMorePages(result.page < result.totalPages);
+          setCurrentPage(result.page || 1);
+          
+          if (!append) {
+            globalState.cachedCoaches = result.coaches;
+            globalState.lastCoachRender = now;
+          }
+        }
+      } catch (error) {
+        console.error('Error loading coaches:', error);
+        if (isMounted.current && requestId === globalState.activeFetchId) {
+          setError('Failed to load coaches. Please try again.');
+        }
+      } finally {
+        if (isMounted.current && requestId === globalState.activeFetchId) {
+          setIsLoading(false);
+          setLoadingMore(false);
+          setIsRefreshing(false);
+        }
+      }
+    },
+    [searchTerm, selectedType, isRefreshing]
+  );
+
+  const debouncedLoadCoaches = useCallback(
+    debounce(loadCoaches, 500),
+    [loadCoaches]
+  );
+
+  // Effect for the first data load
+  useEffect(() => {
+    if (!initialLoadDoneRef.current && !isNavigating && isMounted.current) {
+      console.log('Attempting initial data load sequence.');
+      const attemptInitialLoad = async () => {
+        try {
+          // Check ALL navigation flags before proceeding
+          const [detailFlag, cosmicFlag, addFundsFlag, lastNavTimestamp] = await Promise.all([
+            AsyncStorage.getItem('navigating_to_detail'),
+            AsyncStorage.getItem('navigating_to_cosmic_ai'),
+            AsyncStorage.getItem('navigating_to_add_funds'),
+            AsyncStorage.getItem('last_navigation_timestamp')
+          ]);
+          
+          // If ANY navigation is in progress, don't load the coaches screen immediately
+          if (detailFlag === 'true' || cosmicFlag === 'true' || addFundsFlag === 'true') {
+            console.log('Initial load skipped due to active navigation flags:', 
+              { detailFlag, cosmicFlag, addFundsFlag });
+            
+            // Delay initialization to give navigation time to complete
+            setTimeout(() => {
+              if (isMounted.current) {
+                console.log('Retrying initialization after delay');
+                initialize();
+              }
+            }, 3000); // Increase timeout to ensure navigation completes
+            return;
+          }
+          
+          // Check if there was a very recent navigation attempt (within last 5 seconds)
+          if (lastNavTimestamp) {
+            const timestamp = parseInt(lastNavTimestamp, 10);
+            if (!isNaN(timestamp) && (Date.now() - timestamp < 5000)) {
+              console.log('Recent navigation detected, delaying initialization');
+              setTimeout(() => {
+                if (isMounted.current) {
+                  initialize();
+                }
+              }, 2000);
+              return;
+            }
+          }
+          
+          console.log('No navigation flags active, proceeding with initial load.');
+          initialize();
+        } catch (error) {
+          console.error('Error checking navigation flags for initial load:', error);
+          initialize();
+        }
+      };
+      attemptInitialLoad();
+    }
+  }, [initialize, isNavigating]);
+
+  // Effect for search term changes
+  useEffect(() => {
+    if (initialLoadDoneRef.current && prevSearchTerm.current !== searchTerm && isMounted.current) {
+      console.log(`Search term changed from "${prevSearchTerm.current}" to "${searchTerm}", reloading coaches.`);
+      setCurrentPage(1);
+      debouncedLoadCoaches(1, false);
+    }
+  }, [searchTerm, debouncedLoadCoaches]);
+
+  // Effect for selected type (filter) changes
+  useEffect(() => {
+    if (initialLoadDoneRef.current && prevSelectedType.current !== selectedType && isMounted.current) {
+      console.log(`Selected type changed from "${prevSelectedType.current}" to "${selectedType}", reloading coaches.`);
+      setCurrentPage(1);
+      debouncedLoadCoaches(1, false);
+    }
+  }, [selectedType, debouncedLoadCoaches]);
+
+  // useFocusEffect for refreshing data when the screen comes into focus if data is stale
+  useFocusEffect(
+    useCallback(() => {
+      // When screen focuses, FIRST check if we're in the middle of navigation
+      const checkNavStateBeforeReload = async () => {
+        try {
+          const [detailFlag, cosmicFlag, addFundsFlag] = await Promise.all([
+            AsyncStorage.getItem('navigating_to_detail'),
+            AsyncStorage.getItem('navigating_to_cosmic_ai'),
+            AsyncStorage.getItem('navigating_to_add_funds')
+          ]);
+          
+          // If ANY navigation is happening, don't proceed with reloading
+          if (detailFlag === 'true' || cosmicFlag === 'true' || addFundsFlag === 'true') {
+            console.log('Focus effect - skipping reload due to active navigation');
+            return;
+          }
+          
+          const now = Date.now();
+          if (initialLoadDoneRef.current && !isNavigating && isMounted.current && (now - globalState.lastCoachRender > 30000)) {
+            if(practitioners.length > 0 || totalCoaches > 0) { 
+              console.log('Screen focused and data is stale. Refreshing coaches.');
+              loadCoaches(1, false);
+            } else {
+              console.log('Screen focused, data stale, but no initial practitioners loaded. Skipping refresh to avoid errors.');
+            }
+          }
+        } catch (error) {
+          console.error('Error in focus effect:', error);
+        }
+      };
+      
+      checkNavStateBeforeReload();
+      return () => {};
+    }, [isNavigating, loadCoaches, practitioners.length, totalCoaches])
+  );
+
+  // Replace other useCallbacks that use practitioners with useRef-based approach
+  const onRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    setRetryCount(0);
+    setCurrentPage(1);
+    loadCoaches(1, false);
+  }, [loadCoaches]);
+
+  const loadMoreCoaches = useCallback(() => {
+    if (hasMorePages && !loadingMore && !isLoading) {
+      console.log('Loading more coaches page:', currentPage + 1);
+      loadCoaches(currentPage + 1, true);
+    }
+  }, [currentPage, hasMorePages, loadingMore, isLoading, loadCoaches]);
+
+  const handleSearch = useCallback(() => {
+    setCurrentPage(1);
+    loadCoaches(1, false);
+  }, [loadCoaches]);
+
+  const clearSearch = useCallback(() => {
+    setSearchTerm('');
+    setCurrentPage(1);
+    loadCoaches(1, false);
+  }, [loadCoaches]);
+
+  const truncateText = useCallback((text: string, maxLength: number) => {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  }, []);
+
+  const handleFilterPress = useCallback(() => {
+    Alert.alert(
+      'Filter Coaches',
+      'Select a category',
+      [
+        { text: 'All', onPress: () => setSelectedType('all') },
+        { text: 'Nutrition', onPress: () => setSelectedType('nutrition') },
+        { text: 'Fitness', onPress: () => setSelectedType('fitness') },
+        { text: 'Mental', onPress: () => setSelectedType('mental') },
+        { text: 'Wellness', onPress: () => setSelectedType('wellness') },
+        { text: 'Sleep', onPress: () => setSelectedType('sleep') },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  }, []);
+
+  const handlePress = useCallback(
+    async (item: HealthCoach) => {
+      try {
+        if (!item.id) {
+          console.error('Coach is missing ID:', item);
+          Alert.alert('Error', 'Unable to view coach details. Missing ID.');
+          return;
+        }
+
+        setIsNavigating(true);
+        await AsyncStorage.setItem('navigating_to_detail', 'true');
+        await AsyncStorage.setItem('detail_protection_started_at', Date.now().toString());
+        await AsyncStorage.setItem('detail_flag_set_at', Date.now().toString());
+
+        const coachId = String(item.id).trim();
+        navigation.navigateToCoachDetail(coachId);
+      } catch (error) {
+        console.error('Failed to navigate to coach details:', error);
+        Alert.alert('Navigation Error', 'There was a problem viewing this coach. Please try again.');
+      } finally {
+        setTimeout(() => setIsNavigating(false), 2000); // Reset after 2s
+      }
+    },
+    [navigation]
+  );
+
+  const handleChatPress = useCallback(async () => {
+    try {
+      setIsNavigating(true);
+      await AsyncStorage.setItem('navigating_to_cosmic_ai', 'true');
+      await AsyncStorage.setItem('cosmic_ai_protection_started_at', Date.now().toString());
+      navigation.navigateToCosmicAI();
+    } catch (error) {
+      console.error('Failed to navigate:', error);
+      Alert.alert('Navigation Error', 'There was a problem opening the AI chat. Please try again.');
+    } finally {
+      setTimeout(() => setIsNavigating(false), 2000); // Reset after 2s
+    }
+  }, [navigation]);
+
+  // Memoize the renderPractitioner function to prevent rerenders
+  const renderPractitioner = useCallback(({ item }: { item: HealthCoach }) => (
+    <TouchableOpacity
+      style={styles.practitionerCard}
+      onPress={() => handlePress(item)}
+      disabled={isLoading}
+      activeOpacity={0.7}
+    >
+      <ImageBackground
+        source={{
+          uri: item.avatar_url || 'https://images.unsplash.com/photo-1495482432709-15807c8b3e2b?q=80&w=1000&auto=format&fit=crop',
+        }}
+        style={styles.cardBackground}
+        imageStyle={styles.cardBackgroundImage}
+      >
+        <LinearGradient colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']} style={styles.cardOverlay}>
+          <View style={styles.cardContent}>
+            <View style={styles.nameContainer}>
+              <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
+                {item.name}
+              </Text>
+              {item.is_verified && (
+                <View style={styles.verifiedBadge}>
+                  <Ionicons name="checkmark-circle" size={20} color="#6366f1" />
+                </View>
+              )}
+            </View>
+            <Text style={styles.specialty} numberOfLines={1} ellipsizeMode="tail">
+              {item.specialty || 'Health Coach'}
+            </Text>
+            <View style={styles.ratingContainer}>
+              <Ionicons name="star" size={16} color="#fbbf24" />
+              <Text style={styles.rating}>
+                {typeof item.rating === 'number'
+                  ? item.rating.toFixed(1)
+                  : typeof item.rating === 'string'
+                  ? parseFloat(item.rating).toFixed(1)
+                  : '5.0'}
+              </Text>
+              <Text style={styles.reviews}>({item.reviews_count || 0} reviews)</Text>
+            </View>
+            {item.location && (
+              <View style={styles.locationContainer}>
+                <Ionicons name="location" size={16} color="#6366f1" />
+                <Text style={styles.location} numberOfLines={1} ellipsizeMode="tail">
+                  {item.location}
+                </Text>
+              </View>
+            )}
+          </View>
+        </LinearGradient>
+      </ImageBackground>
+    </TouchableOpacity>
+  ), [handlePress, isLoading]);
+
+  const renderEmptyState = () => {
+    if (isLoading) return null;
+
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="people-outline" size={64} color="#94a3b8" />
+        <Text style={styles.emptyTitle}>No Health Coaches Found</Text>
+        <Text style={styles.emptyText}>
+          {searchTerm && selectedType !== 'all'
+            ? `We couldn't find any ${selectedType} coaches matching "${searchTerm}"`
+            : searchTerm
+            ? `We couldn't find any coaches matching "${searchTerm}"`
+            : selectedType !== 'all'
+            ? `We couldn't find any ${selectedType} coaches`
+            : "We're having trouble loading health coaches right now"}
+        </Text>
+        <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
+          <Text style={styles.retryButtonText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderFooter = () => {
+    if (loadingMore) {
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.footerText}>Loading more coaches...</Text>
+        </View>
+      );
+    }
+
+    if (hasMorePages) {
+      return (
+        <View style={styles.footerContainer}>
+          <View style={styles.footerLoader}>
+            <ActivityIndicator size="small" color="#6366f1" />
+            <Text style={styles.footerText}>Loading...</Text>
+          </View>
+
+          {totalCoaches > practitioners.length && (
+            <TouchableOpacity style={styles.loadAllButton} onPress={() => loadAllCoaches()}>
+              <Text style={styles.loadAllButtonText}>Load All {totalCoaches} Coaches</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    }
+
+    return null;
+  };
+
+  const loadAllCoaches = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      console.log('Loading all coaches at once...');
+
+      const searchParams = {
+        page: 1,
+        pageSize: totalCoaches,
+        searchTerm: searchTerm || undefined,
+      };
+
+      const result = await getHealthCoaches(searchParams);
+
+      console.log(`Loaded all ${result?.coaches?.length || 0} coaches of ${result?.total || 0} total`);
+
+      if (isMounted.current) {
+        setPractitioners(result?.coaches || []);
+        setHasMorePages(false);
+        setCurrentPage(1);
+      }
+    } catch (err) {
+      console.error('Failed to load all coaches:', err);
+      if (isMounted.current) {
+        setError('Failed to load all coaches. Please try again.');
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  // Handle initial mount and setup
+  useEffect(() => {
+    isMounted.current = true;
+    mountTimeRef.current = Date.now();
+    // Initial call to attemptInitialLoad is handled by useFocusEffect on first focus
+    // attemptInitialLoad(); 
+
+    return () => {
+      isMounted.current = false;
+      apiRequestCache.currentRequestId++; 
+      console.log('CoachesScreen unmounted, request ID incremented');
+      if (currentPractitioners.current.length > 0) {
+        console.log('Caching coaches to global state on unmount');
+        globalState.cachedCoaches = currentPractitioners.current;
+        globalState.lastCoachRender = Date.now();
+      }
+    };
+  }, []); // Empty dependency array: runs once on mount and unmount
+
+  // Early in the component, add this effect to mark onboarding as complete
+  useEffect(() => {
+    // Mark onboarding as complete when this screen loads
+    const markOnboardingComplete = async () => {
+      try {
+        console.log('CoachesScreen: Marking onboarding as complete');
+        await AsyncStorage.setItem('onboarding_complete', 'true');
+      } catch (error) {
+        console.error('Error marking onboarding as complete:', error);
+      }
+    };
+    
+    markOnboardingComplete();
+  }, []);
+
+  // ---> ADD CONDITIONAL RENDERING FOR GLOBAL NAV PROTECTION <---
+  if (isGlobalNavProtected) {
+    return (
+      <SafeAreaView style={styles.safeAreaFullLoad}>
+        <View style={styles.fullScreenCentered}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.fullScreenText}>
+            Finalizing your session, please wait...
+          </Text>
+          <Text style={styles.fullScreenSubText}>
+            (Reason code: {globalNavProtectedReason})
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isLoading && !isRefreshing) {
+    return (
+      <View style={styles.container}>
+        <StatusBar backgroundColor="#4f46e5" barStyle="light-content" />
+        <LinearGradient
+          colors={['#4f46e5', '#6366f1']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.headerBackground}
+        >
+          <SafeAreaView style={styles.safeAreaTop}>
+            <View style={styles.headerContent}>
+              <View>
+                <Text style={styles.headerTitle}>Health Coaches</Text>
+                <Text style={styles.headerSubtitle}>Find your perfect wellness match</Text>
+              </View>
+              <View style={styles.searchContainer}>
+                {showSearch ? (
+                  <View style={styles.searchInputContainer}>
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Search coaches..."
+                      placeholderTextColor="#94a3b8"
+                      value={searchTerm}
+                      onChangeText={setSearchTerm}
+                      onSubmitEditing={handleSearch}
+                      autoFocus
+                    />
+                    <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+                      <Ionicons name="close-circle" size={20} color="#94a3b8" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.headerActions}>
+                    <TouchableOpacity style={styles.iconButton} onPress={() => setShowSearch(true)}>
+                      <Ionicons name="search" size={22} color="#ffffff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.iconButton} onPress={handleFilterPress}>
+                      <Ionicons name="filter" size={22} color="#ffffff" />
+                      {selectedType !== 'all' && (
+                        <View style={styles.filterBadge}>
+                          <Text style={styles.filterBadgeText}></Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </View>
+          </SafeAreaView>
+        </LinearGradient>
+
+        <SafeAreaView style={styles.safeAreaBottom}>
+          {totalCoaches > 0 && (
+            <View style={styles.resultsInfo}>
+              <Text style={styles.resultsText}>
+                Showing {practitioners.length} of {totalCoaches} health coaches
+                {searchTerm ? ` matching "${searchTerm}"` : ''}
+                {selectedType !== 'all' ? ` in ${selectedType}` : ''}
+                {currentPage > 1 ? ` (Page ${currentPage})` : ''}
+              </Text>
+            </View>
+          )}
+
+          <ScrollView contentContainerStyle={styles.list}>
+            {[1, 2, 3, 4, 5].map((index) => (
+              <View key={index} style={styles.loadingCard}>
+                <View style={styles.loadingCardInner}>
+                  <ActivityIndicator size="small" color="#6366f1" />
+                  <Text style={styles.loadingCardText}>Loading...</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.floatingButtonContainer}>
+            <TouchableOpacity style={styles.floatingButton} onPress={handleChatPress} activeOpacity={0.7}>
+              <LinearGradient
+                colors={['#6366f1', '#4f46e5']}
+                style={styles.gradientButton}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                <Ionicons name="sparkles" size={24} color="#ffffff" />
+                <Text style={styles.floatingButtonText}>Ask Coach AI</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => loadCoaches(1, false)}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <StatusBar backgroundColor="#4f46e5" barStyle="light-content" />
+      <LinearGradient
+        colors={['#4f46e5', '#6366f1']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.headerBackground}
+      >
+        <SafeAreaView style={styles.safeAreaTop}>
+          <View style={styles.headerContent}>
+            <View>
+              <Text style={styles.headerTitle}>Health Coaches</Text>
+              <Text style={styles.headerSubtitle}>Find your perfect wellness match</Text>
+            </View>
+            <View style={styles.searchContainer}>
+              {showSearch ? (
+                <View style={styles.searchInputContainer}>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search coaches..."
+                    placeholderTextColor="#94a3b8"
+                    value={searchTerm}
+                    onChangeText={setSearchTerm}
+                    onSubmitEditing={handleSearch}
+                    autoFocus
+                  />
+                  <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+                    <Ionicons name="close-circle" size={20} color="#94a3b8" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.headerActions}>
+                  <TouchableOpacity style={styles.iconButton} onPress={() => setShowSearch(true)}>
+                    <Ionicons name="search" size={22} color="#ffffff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.iconButton} onPress={handleFilterPress}>
+                    <Ionicons name="filter" size={22} color="#ffffff" />
+                    {selectedType !== 'all' && (
+                      <View style={styles.filterBadge}>
+                        <Text style={styles.filterBadgeText}></Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+
+      <SafeAreaView style={styles.safeAreaBottom}>
+        {totalCoaches > 0 && (
+          <View style={styles.resultsInfo}>
+            <Text style={styles.resultsText}>
+              Showing {practitioners.length} of {totalCoaches} health coaches
+              {searchTerm ? ` matching "${searchTerm}"` : ''}
+              {selectedType !== 'all' ? ` in ${selectedType}` : ''}
+              {currentPage > 1 ? ` (Page ${currentPage})` : ''}
+            </Text>
+          </View>
+        )}
+
+        <FlatList
+          data={practitioners}
+          renderItem={renderPractitioner}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={[styles.list, practitioners.length === 0 && styles.emptyList]}
+          ListEmptyComponent={renderEmptyState}
+          ListFooterComponent={renderFooter}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#6366f1" colors={['#6366f1']} />}
+          onEndReached={loadMoreCoaches}
+          onEndReachedThreshold={0.3}
+          maxToRenderPerBatch={15}
+          initialNumToRender={15}
+          windowSize={12}
+          removeClippedSubviews={true}
+          updateCellsBatchingPeriod={50}
+          getItemLayout={(data, index) => ({
+            length: isSmallScreen ? 192 : isLargeScreen ? 232 : 212,
+            offset: (isSmallScreen ? 192 : isLargeScreen ? 232 : 212) * index,
+            index,
+          })}
+        />
+
+        <View style={styles.floatingButtonContainer}>
+          <TouchableOpacity style={styles.floatingButton} onPress={handleChatPress} activeOpacity={0.7}>
+            <LinearGradient
+              colors={['#6366f1', '#4f46e5']}
+              style={styles.gradientButton}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Ionicons name="sparkles" size={24} color="#ffffff" />
+              <Text style={styles.floatingButtonText}>Ask Coach AI</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  headerBackground: {
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  safeAreaTop: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  safeAreaBottom: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: isSmallScreen ? 22 : isLargeScreen ? 28 : 24,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    textShadowColor: 'rgba(0, 0, 0, 0.1)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  headerSubtitle: {
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 16 : 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginTop: 2,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    width: isSmallScreen ? 220 : 240,
+    ...Platform.select({
+      ios: {
+        shadowColor: 'rgba(0, 0, 0, 0.1)',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  searchInput: {
+    flex: 1,
+    color: '#1e293b',
+    fontSize: 14,
+    paddingVertical: Platform.OS === 'ios' ? 6 : 4,
+  },
+  clearButton: {
+    padding: 2,
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#ef4444',
+    borderRadius: 6,
+    width: 8,
+    height: 8,
+  },
+  filterBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+  },
+  resultsInfo: {
+    padding: 12,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  resultsText: {
+    color: '#64748b',
+    fontSize: 12,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  list: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingBottom: Platform.OS === 'ios' ? 80 : 70,
+    flexGrow: 1,
+  },
+  emptyList: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: Platform.OS === 'ios' ? 80 : 70,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    margin: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 15,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
+  },
+  emptyTitle: {
+    color: '#1e293b',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyText: {
+    color: '#64748b',
+    fontSize: 14,
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  practitionerCard: {
+    marginBottom: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    height: isSmallScreen ? 180 : isLargeScreen ? 220 : 200,
+    backgroundColor: '#ffffff',
+  },
+  cardBackground: {
+    width: '100%',
+    height: '100%',
+  },
+  cardBackgroundImage: {
+    borderRadius: 16,
+  },
+  cardOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    padding: isSmallScreen ? 12 : isLargeScreen ? 18 : 16,
+    borderRadius: 16,
+  },
+  cardContent: {
+    width: '100%',
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  name: {
+    fontSize: isSmallScreen ? 16 : isLargeScreen ? 20 : 18,
+    fontWeight: '600',
+    color: '#ffffff',
+    flex: 1,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  verifiedBadge: {
+    marginLeft: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 4,
+  },
+  specialty: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    color: '#e5e7eb',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  ratingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  rating: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    fontWeight: '600',
+    color: '#ffffff',
+    marginLeft: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  reviews: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    color: '#e5e7eb',
+    marginLeft: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  location: {
+    fontSize: isSmallScreen ? 12 : isLargeScreen ? 16 : 14,
+    color: '#e5e7eb',
+    marginLeft: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  floatingButtonContainer: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 20 : 16,
+    right: 16,
+    zIndex: 9999,
+    elevation: 5,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    ...Platform.select({
+      android: {
+        marginBottom: 60,
+      },
+    }),
+  },
+  floatingButton: {
+    borderRadius: 25,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    ...Platform.select({
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  gradientButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: isSmallScreen ? 10 : isLargeScreen ? 14 : 12,
+    paddingHorizontal: isSmallScreen ? 16 : isLargeScreen ? 24 : 20,
+    borderRadius: 25,
+    backgroundColor: '#6366f1',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  floatingButtonText: {
+    color: '#ffffff',
+    fontSize: isSmallScreen ? 14 : isLargeScreen ? 18 : 16,
+    fontWeight: '600',
+    marginLeft: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#4b5563',
+    fontSize: isSmallScreen ? 15 : isLargeScreen ? 17 : 16,
+    marginTop: 16,
+  },
+  loadingCard: {
+    height: isSmallScreen ? 180 : isLargeScreen ? 220 : 200,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    marginBottom: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  loadingCardInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loadingCardText: {
+    color: '#64748b',
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
+    marginTop: 12,
+    fontWeight: '500',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f8fafc',
+  },
+  errorText: {
+    color: '#4b5563',
+    fontSize: isSmallScreen ? 15 : isLargeScreen ? 17 : 16,
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: isSmallScreen ? 20 : isLargeScreen ? 28 : 24,
+    paddingVertical: isSmallScreen ? 10 : isLargeScreen ? 14 : 12,
+    borderRadius: 8,
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: isSmallScreen ? 14 : isLargeScreen ? 18 : 16,
+    fontWeight: '600',
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 12,
+  },
+  footerText: {
+    color: '#4b5563',
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
+    marginLeft: 8,
+  },
+  footerContainer: {
+    alignItems: 'center',
+    paddingBottom: 20,
+  },
+  loadAllButton: {
+    backgroundColor: '#6366f1',
+    paddingHorizontal: isSmallScreen ? 12 : isLargeScreen ? 20 : 16,
+    paddingVertical: isSmallScreen ? 8 : isLargeScreen ? 12 : 10,
+    borderRadius: 8,
+    marginTop: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6366f1',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  loadAllButtonText: {
+    color: '#ffffff',
+    fontSize: isSmallScreen ? 13 : isLargeScreen ? 15 : 14,
+    fontWeight: '600',
+  },
+  safeAreaFullLoad: {
+    flex: 1,
+    backgroundColor: '#F7F7F7', // Or your app's background color
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenCentered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  fullScreenText: {
+    fontSize: 18,
+    color: '#333',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  fullScreenSubText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  activityIndicator: {
+    marginTop: 20,
+  },
+});

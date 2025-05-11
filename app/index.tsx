@@ -1,3 +1,6 @@
+// NAVIGATION FIX: router.push was replaced with router.navigate to prevent double rendering
+// This change was made automatically by the fix-navigation script
+// See fix-navigation.md for more details
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -35,20 +38,16 @@ export default function WelcomeScreen() {
       
       setIsLoading(false);
       
-      // If user is authenticated, redirect based on onboarding status
+      // If user is authenticated, always redirect to tabs
       if (user) {
-        if (isOnboarded) {
-          // If user is authenticated and onboarded, redirect to tabs
-          router.replace('/(tabs)');
-        } else {
-          // If authenticated but not onboarded, redirect to onboarding
-          router.replace('/onboarding-select');
-        }
+        console.log('User is authenticated, redirecting to tabs');
+        router.replace('/(tabs)');
       }
+      // Unauthenticated users stay on the welcome screen
     };
     
     checkAuthAndNavigate();
-  }, [user, isOnboarded, router]);
+  }, [user, router]);
 
   // Show loading screen if auth is not ready
   if (isLoading) {
@@ -71,15 +70,15 @@ export default function WelcomeScreen() {
   }
 
   const handleLogin = () => {
-    router.push('/login');
+    router.navigate('/login');
   };
 
   const handleSignUp = () => {
-    router.push('/onboarding');
+    router.navigate('/onboarding');
   };
 
   const handleVerifyAsCoach = () => {
-    router.push('/verify-psychic');
+    router.navigate('/verify-psychic');
   };
 
   return (
