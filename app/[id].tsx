@@ -7,9 +7,8 @@ import { getHealthCoachById, HealthCoach } from '../services/database';
 import { useAuth } from '../context/AuthContext';
 import { usePurchases } from '../context/PurchaseContext';
 import { useFavorites } from '../context/FavoritesContext';
-import { useAppNavigation } from '../lib/navigation';
+import { useAppNavigation, navigate, navigateToAddFunds } from '../lib/navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { navigate } from '../lib/navigation';
 
 export default function CoachDetailScreen() {
   const { navigateToAddFunds } = useAppNavigation();
@@ -37,42 +36,27 @@ export default function CoachDetailScreen() {
     }
   }, [id]);
 
-  // Improved function to set navigation locks safely for first-time users
-  const setNavigationLocks = async () => {
-    try {
-      // For first time users, we can simplify this process
-      // Just make sure we clear any existing flags that might interfere
-      await Promise.all([
-        AsyncStorage.removeItem('navigating_to_cosmic_ai'),
-        AsyncStorage.removeItem('navigating_to_add_funds'),
-        AsyncStorage.removeItem('cosmic_ai_protection_started_at'),
-        AsyncStorage.removeItem('add_funds_protection_started_at')
-      ]);
-      
-      console.log('CoachDetailScreen: Navigation locks cleared for clean access');
-    } catch (error) {
-      console.error('CoachDetailScreen: Error handling navigation locks:', error);
-      // No need to throw - we'll continue even if this fails
-    }
-  };
-  
-  // Improved setup for first-time users
+  // Set up safe navigation
   useEffect(() => {
-    // Clean up any existing locks to prevent issues
-    setNavigationLocks();
+    const setupNavigation = async () => {
+      try {
+        // Clear any specific navigation flags related to this screen
+        await AsyncStorage.removeItem('is_navigating');
+        await AsyncStorage.removeItem('navigation_started_at');
+        
+        console.log('CoachDetailScreen: Ready for safe navigation');
+      } catch (error) {
+        console.error('CoachDetailScreen: Error setting up navigation:', error);
+      }
+    };
     
-    // No need for InteractionManager - simplify the flow
+    setupNavigation();
     
-    // Clean up on unmount
+    // Clean up on unmount - to be safe, clear any navigation locks
     return () => {
-      console.log('CoachDetailScreen unmounting, clearing any navigation flags');
-      AsyncStorage.multiRemove([
-        'navigating_to_detail',
-        'detail_protection_started_at',
-        'detail_flag_set_at'
-      ]).catch(error => 
-        console.error('CoachDetailScreen: Failed to clear flags:', error)
-      );
+      console.log('CoachDetailScreen unmounting, clearing navigation locks');
+      AsyncStorage.removeItem('is_navigating')
+        .catch(error => console.error('CoachDetailScreen: Failed to clear locks:', error));
     };
   }, []);
 
@@ -142,16 +126,13 @@ export default function CoachDetailScreen() {
     refreshBalance();
   }, [loadCoachDetails, refreshBalance]);
 
-  // Improved function to safely handle navigation without locks
-  const handleBackPress = useCallback(() => {
-    console.log('Navigating back to home from coach detail');
-    router.replace('/(tabs)');
-  }, [router]);
-  
-  const handleAddFunds = useCallback(() => {
-    console.log('Navigating to add funds from coach detail');
-    router.push('/settings/add-funds');
-  }, [router]);
+  const handleBackPress = useCallback(async () => {
+    await navigate('/(tabs)', { replace: true });
+  }, []);
+
+  const handleAddFunds = useCallback(async () => {
+    await navigateToAddFunds();
+  }, [navigateToAddFunds]);
 
   const handleToggleFavorite = async () => {
     if (!coach) return;

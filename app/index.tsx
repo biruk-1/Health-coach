@@ -38,16 +38,20 @@ export default function WelcomeScreen() {
       
       setIsLoading(false);
       
-      // If user is authenticated, always redirect to tabs
+      // If user is authenticated, redirect based on onboarding status
       if (user) {
-        console.log('User is authenticated, redirecting to tabs');
-        router.replace('/(tabs)');
+        if (isOnboarded) {
+          // If user is authenticated and onboarded, redirect to tabs
+          router.replace('/(tabs)');
+        } else {
+          // If authenticated but not onboarded, redirect to onboarding
+          router.replace('/onboarding-select');
+        }
       }
-      // Unauthenticated users stay on the welcome screen
     };
     
     checkAuthAndNavigate();
-  }, [user, router]);
+  }, [user, isOnboarded, router]);
 
   // Show loading screen if auth is not ready
   if (isLoading) {

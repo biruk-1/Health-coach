@@ -12,24 +12,20 @@ export function useAppInitialization() {
       initializationStarted.current = true;
 
       try {
-        // Clear ALL navigation flags and protection markers
-        console.log('Clearing all navigation flags and locks');
-        
-        const keysToRemove = [
-          'navigating_to_detail',
-          'navigating_to_add_funds',
-          'navigating_to_cosmic_ai',
-          'detail_protection_started_at',
-          'add_funds_protection_started_at',
-          'cosmic_ai_protection_started_at',
-          'detail_flag_set_at',
-          'general_navigation_lock'
-        ];
-        
-        await AsyncStorage.multiRemove(keysToRemove);
-        
-        // Set initialized immediately
-        setIsInitialized(true);
+        // Clear stale navigation flags
+        await Promise.all([
+          AsyncStorage.removeItem('navigating_to_detail'),
+          AsyncStorage.removeItem('navigating_to_add_funds'),
+          AsyncStorage.removeItem('navigating_to_cosmic_ai'),
+          AsyncStorage.removeItem('detail_protection_started_at'),
+          AsyncStorage.removeItem('add_funds_protection_started_at'),
+          AsyncStorage.removeItem('cosmic_ai_protection_started_at')
+        ]);
+
+        // Set initialized after a short delay
+        setTimeout(() => {
+          setIsInitialized(true);
+        }, 500);
       } catch (error) {
         console.error('Error initializing app:', error);
         setIsInitialized(true);

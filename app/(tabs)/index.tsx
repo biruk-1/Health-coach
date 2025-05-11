@@ -24,7 +24,7 @@ import { supabase } from '../../lib/supabase';
 import { getHealthCoaches, HealthCoach, initializeDatabase } from '../../services/database';
 import { useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAppNavigation, navigate } from '../../lib/navigation';
+import { useAppNavigation } from '../../lib/navigation';
 import debounce from 'lodash/debounce';
 import React from 'react';
 import { useAppInitialization } from '@hooks/useAppInitialization';
@@ -68,7 +68,7 @@ const globalState = {
 
 export default function CoachesScreen() {
   const router = useRouter();
-  const navigation = useAppNavigation();
+  const appNav = useAppNavigation();
   const isInitialized = useAppInitialization();
   const [practitioners, setPractitioners] = useState<HealthCoach[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -97,7 +97,7 @@ export default function CoachesScreen() {
   const [globalNavProtectedReason, setGlobalNavProtectedReason] = useState<GlobalNavProtectedReason>('none');
 
   // Use our new navigation helper
-  const { navigateToCoachDetail, navigateToCosmicAI } = useAppNavigation();
+  const { navigateToCoachDetails, navigateToAIChat } = appNav;
 
   // Keep track of the current state in refs for comparison
   useEffect(() => {
@@ -514,17 +514,36 @@ export default function CoachesScreen() {
     );
   }, []);
 
-  const handleSelectCoach = (coach: HealthCoach) => {
-    if (!coach?.id) {
-      console.error('Invalid coach selected, missing ID');
-      return;
-    }
-    
-    console.log(`Navigating to coach detail: ${coach.id}`);
-    
-    // Navigate directly without any flagging or locking
-    navigate(`/${coach.id}`);
-  };
+  const handlePress = useCallback(
+    async (item: HealthCoach) => {
+      if (!isInitialized) {
+        console.warn('App not initialized, delaying navigation');
+        Alert.alert('Loading', 'Please wait while the app initializes.');
+        return;
+      }
+
+      try {
+        if (!item.id || item.id === '(tabs)' || !/^[a-zA-Z0-9-]+$/.test(item.id)) {
+          console.error('Invalid coach ID:', item.id);
+          Alert.alert('Error', 'Invalid coach ID.');
+          return;
+        }
+
+        // Set navigating state for UI
+        setIsNavigating(true);
+        
+        // Navigate using our clean navigation service
+        appNav.navigateToCoachDetails(item.id);
+      } catch (error) {
+        console.error('Failed to navigate to coach details:', error);
+        Alert.alert('Navigation Error', 'There was a problem viewing this coach. Please try again.');
+      } finally {
+        // Always reset navigation state
+        setTimeout(() => setIsNavigating(false), 500);
+      }
+    },
+    [appNav, isInitialized]
+  );
 
   const handleChatPress = useCallback(async () => {
     if (!isInitialized) {
@@ -538,7 +557,7 @@ export default function CoachesScreen() {
       setIsNavigating(true);
       
       // Navigate using our clean navigation service
-      navigateToCosmicAI();
+      appNav.navigateToAIChat();
     } catch (error) {
       console.error('Failed to navigate to cosmic AI:', error);
       Alert.alert('Navigation Error', 'There was a problem opening the AI chat. Please try again.');
@@ -546,12 +565,12 @@ export default function CoachesScreen() {
       // Always reset navigation state
       setTimeout(() => setIsNavigating(false), 500);
     }
-  }, [navigateToCosmicAI, isInitialized]);
+  }, [appNav, isInitialized]);
 
   const renderPractitioner = useCallback(({ item }: { item: HealthCoach }) => (
     <TouchableOpacity
       style={styles.practitionerCard}
-      onPress={() => handleSelectCoach(item)}
+      onPress={() => handlePress(item)}
       disabled={isLoading || !isInitialized}
       activeOpacity={0.7}
     >
@@ -600,7 +619,7 @@ export default function CoachesScreen() {
         </LinearGradient>
       </ImageBackground>
     </TouchableOpacity>
-  ), [handleSelectCoach, isLoading, isInitialized]);
+  ), [handlePress, isLoading, isInitialized]);
 
   const renderEmptyState = () => {
     if (isLoading) return null;

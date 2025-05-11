@@ -1,6 +1,5 @@
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
 
 /**
  * Modern Navigation Service for Health Coach App
@@ -9,40 +8,91 @@ import { Platform } from 'react-native';
  * throughout the app without race conditions or locks.
  */
 
-// Cache the last navigation to prevent duplicate navigations
-let lastNavigation = {
-  path: '',
-  timestamp: 0
-};
-  
-// Define route groups for better organization
-export const publicRoutes = [
-  'onboarding',
-  'login',
-  'index',
-  '',
-  '(auth)',
-  'verify-psychic'
-];
+// Public routes that don't require authentication
+export const publicRoutes = ['login', 'index', 'onboarding', 'onboarding-select'];
 
-export const personalizationRoutes = [
-  'onboarding-select',
-  'user-onboarding',
-  'coach-onboarding'
-];
-  
-/**
- * Navigate to a route cleanly without race conditions
- */
-export function navigate(path: string, replace: boolean = false) {
-  console.log(`Navigation - Navigating to: ${path}${replace ? ' (replace)' : ''}`);
-  
-  if (replace) {
-    router.replace(path);
-  } else {
-    router.navigate(path);
+// Routes related to personalization/onboarding
+export const personalizationRoutes = ['onboarding-select', 'onboarding'];
+
+// A better navigate function that prevents navigation loops
+export const navigate = async (to: string, options?: { replace?: boolean }) => {
+  try {
+    // Check if we're already navigating
+    const isNavigating = await AsyncStorage.getItem('is_navigating');
+    const navigationStart = await AsyncStorage.getItem('navigation_started_at');
+    const now = Date.now();
+    
+    // If we're already navigating and it's been less than 1000ms, prevent the navigation
+    if (isNavigating && navigationStart) {
+      const timeSinceLastNav = now - parseInt(navigationStart);
+      if (timeSinceLastNav < 1000) {
+        console.log(`Navigation prevented: already navigating to ${isNavigating}, and it's only been ${timeSinceLastNav}ms`);
+        return;
+      }
+    }
+    
+    // Set navigation lock with current destination
+    await AsyncStorage.setItem('is_navigating', to);
+    await AsyncStorage.setItem('navigation_started_at', now.toString());
+    
+    console.log(`Navigating to: ${to}${options?.replace ? ' (replace)' : ''}`);
+    
+    // Perform navigation
+    if (options?.replace) {
+      router.replace(to as any);
+    } else {
+      router.navigate(to as any);
+    }
+    
+    // Remove lock after delay
+    setTimeout(async () => {
+      const currentDestination = await AsyncStorage.getItem('is_navigating');
+      if (currentDestination === to) {
+        await AsyncStorage.removeItem('is_navigating');
+        await AsyncStorage.removeItem('navigation_started_at');
+        console.log(`Navigation lock cleared for: ${to}`);
+      }
+    }, 1500);
+  } catch (error) {
+    console.error('Navigation error:', error);
+    // Fallback to direct navigation in case of errors
+    if (options?.replace) {
+      router.replace(to as any);
+    } else {
+      router.navigate(to as any);
+    }
   }
-}
+};
+
+// Function to clear all navigation locks - useful for error recovery
+export const clearNavigationLocks = async () => {
+  try {
+    await AsyncStorage.multiRemove([
+      'is_navigating', 
+      'navigation_started_at',
+      'navigating_to_cosmic_ai',
+      'navigating_to_add_funds',
+      'navigating_to_detail',
+      'detail_protection_started_at',
+      'detail_flag_set_at',
+      'cosmic_ai_protection_started_at',
+      'add_funds_protection_started_at'
+    ]);
+    console.log('All navigation locks cleared');
+  } catch (error) {
+    console.error('Error clearing navigation locks:', error);
+  }
+};
+
+// Navigation utils for common destinations
+export const useAppNavigation = () => {
+  return {
+    navigateToAddFunds,
+    navigateToCoachDetails: navigateToCoachDetail,
+    navigateToHome: () => navigate('/(tabs)', { replace: true }),
+    navigateToAIChat: navigateToCosmicAI,
+  };
+};
 
 /**
  * Navigate to coach details with proper coach ID validation
@@ -51,24 +101,24 @@ export function navigateToCoachDetail(coachId: string) {
   // Validate coach ID
   if (!coachId || coachId === '(tabs)' || !/^[a-zA-Z0-9-]+$/.test(coachId)) {
     console.error('Invalid coach ID:', coachId);
-      return;
-    }
+    return;
+  }
     
-  navigate(`/${coachId}`);
+  return navigate(`/${coachId}`);
 }
 
 /**
  * Navigate to Cosmic AI chat safely
  */
 export function navigateToCosmicAI() {
-  navigate('/cosmic-ai-chat');
+  return navigate('/cosmic-ai-chat');
 }
 
 /**
  * Navigate to Add Funds screen
  */
 export function navigateToAddFunds() {
-  navigate('/settings/add-funds');
+  return navigate('/settings/add-funds');
 }
 
 /**
@@ -97,43 +147,8 @@ export async function isOnboarded() {
   }
 }
 
-/**
- * Main navigation hook for use in components
- */
-export function useAppNavigation() {
-  return {
-    // Navigate to the coach detail screen with a clean approach
-    navigateToCoachDetail: (coachId: string) => {
-      console.log(`Navigating to coach detail: ${coachId}`);
-      navigate(`/${coachId}`);
-    },
-    
-    // Navigate to cosmic AI chat without any flags
-    navigateToCosmicAI: () => {
-      console.log('Navigating to cosmic AI chat');
-      navigate('/cosmic-ai-chat');
-    },
-    
-    // Navigate to add funds page without flags
-    navigateToAddFunds: () => {
-      console.log('Navigating to add funds');
-      navigate('/settings/add-funds');
-    },
-    
-    // Clean navigation back to tabs
-    navigateToTabs: () => {
-      console.log('Navigating back to tabs');
-      router.replace('/(tabs)');
-    },
-    
-    // Generic go back function that uses router.back() 
-    goBack: () => {
-      console.log('Going back');
-      // Using replace to avoid stacking history
-      router.back();
-    }
-  };
-}
+export const navigateToCoachDetails = navigateToCoachDetail;
+export const navigateToAIChat = navigateToCosmicAI;
 
 export default {
   navigate,

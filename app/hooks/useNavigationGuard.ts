@@ -4,31 +4,71 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export function useNavigationGuard() {
   const [isLocked, setIsLocked] = useState(false);
 
-  // Simple operation executor - just runs the operation without any locking
   const lockNavigation = useCallback(async (operation: () => Promise<void>) => {
+    if (isLocked) {
+      console.log('Navigation is currently locked');
+      return;
+    }
+
+    setIsLocked(true);
     try {
       await operation();
-    } catch (error) {
-      console.error('Navigation operation failed:', error);
+    } finally {
+      setIsLocked(false);
     }
-  }, []);
+  }, [isLocked]);
 
-  // Always return false - no more navigation locks
   const checkNavigationLock = useCallback(async () => {
-    return false;
+    const [
+      navigatingToDetail,
+      navigatingToAddFunds,
+      navigatingToCosmicAI,
+      detailProtectionStartedAt,
+      addFundsProtectionStartedAt,
+      cosmicAIProtectionStartedAt
+    ] = await Promise.all([
+      AsyncStorage.getItem('navigating_to_detail'),
+      AsyncStorage.getItem('navigating_to_add_funds'),
+      AsyncStorage.getItem('navigating_to_cosmic_ai'),
+      AsyncStorage.getItem('detail_protection_started_at'),
+      AsyncStorage.getItem('add_funds_protection_started_at'),
+      AsyncStorage.getItem('cosmic_ai_protection_started_at')
+    ]);
+
+    const now = Date.now();
+    const checkTimestamp = (timestamp: string | null) => {
+      if (!timestamp) return false;
+      const time = parseInt(timestamp, 10);
+      return !isNaN(time) && now - time < 5000; // 5 second protection
+    };
+
+    return (
+      navigatingToDetail === 'true' ||
+      navigatingToAddFunds === 'true' ||
+      navigatingToCosmicAI === 'true' ||
+      checkTimestamp(detailProtectionStartedAt) ||
+      checkTimestamp(addFundsProtectionStartedAt) ||
+      checkTimestamp(cosmicAIProtectionStartedAt)
+    );
   }, []);
 
-  // No-op functions that don't actually set flags anymore
   const setNavigationFlag = useCallback(async (flag: string) => {
-    console.log(`Navigation flag ${flag} would be set (disabled)`);
+    const now = Date.now().toString();
+    await Promise.all([
+      AsyncStorage.setItem(flag, 'true'),
+      AsyncStorage.setItem(`${flag}_started_at`, now)
+    ]);
   }, []);
 
   const clearNavigationFlag = useCallback(async (flag: string) => {
-    console.log(`Navigation flag ${flag} would be cleared (disabled)`);
+    await Promise.all([
+      AsyncStorage.removeItem(flag),
+      AsyncStorage.removeItem(`${flag}_started_at`)
+    ]);
   }, []);
 
   return {
-    isLocked: false, // Always return false
+    isLocked,
     lockNavigation,
     checkNavigationLock,
     setNavigationFlag,

@@ -25,7 +25,7 @@ import { usePurchases } from '../../context/PurchaseContext';
 
 export default function AccountScreen() {
   const router = useRouter();
-  const { user, session, updateUserState } = useAuth();
+  const { user, session } = useAuth();
   const { balance, refreshBalance } = usePurchases();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -279,16 +279,6 @@ export default function AccountScreen() {
       await new Promise(resolve => setTimeout(resolve, 800));
       
       try {
-        // Get the latest user data from Supabase to update the UI
-        const { data: { user: updatedSupabaseUser }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError) {
-          console.error('Error getting updated user:', userError);
-        } else if (updatedSupabaseUser) {
-          // Update local state immediately with new user data
-          updateUserState(updatedSupabaseUser);
-        }
-        
         // Try to reload user data to confirm changes, but don't fail if this doesn't work
         console.log('Update successful, attempting to reload user data to confirm changes...');
         const success = await loadUserData();

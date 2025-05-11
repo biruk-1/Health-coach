@@ -124,7 +124,7 @@ class Api {
         
         // Skip phone number update for now as it requires SMS verification
         
-        // Update user metadata with all fields, ensuring we don't lose existing data
+        // Prepare metadata update with all fields, ensuring we don't lose existing data
         const existingMetadata = user.user_metadata || {};
         
         // Create an update object that explicitly sets each field
@@ -190,13 +190,7 @@ class Api {
             data: {
               id: data.user.id,
               email: data.user.email,
-              fullName: data.user.user_metadata?.full_name,
-              phone: data.user.phone || data.user.user_metadata?.phone,
-              birthDate: data.user.user_metadata?.birth_date,
-              birthTime: data.user.user_metadata?.birth_time,
-              birthLocation: data.user.user_metadata?.birth_location,
-              height: data.user.user_metadata?.height,
-              interests: data.user.user_metadata?.interests,
+              ...data.user.user_metadata,
               emailUpdated: updateResults.emailUpdated
             },
             error: null,

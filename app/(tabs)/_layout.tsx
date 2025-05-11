@@ -5,6 +5,8 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext';
 import { useAppInitialization } from '@hooks/useAppInitialization';
 import { useNavigationGuard } from '@hooks/useNavigationGuard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearNavigationLocks } from '../../lib/navigation';
 
 // Simple optimized tab layout
 function TabLayout() {
@@ -20,6 +22,21 @@ function TabLayout() {
     }, 200);
     
     return () => clearTimeout(timer);
+  }, []);
+
+  // Clear navigation locks when tabs layout loads
+  useEffect(() => {
+    const setupTabsNavigation = async () => {
+      try {
+        // Clear any existing navigation locks when entering the tabs
+        await clearNavigationLocks();
+        console.log('TabLayout: Cleared navigation locks for clean tab navigation');
+      } catch (error) {
+        console.error('TabLayout: Error clearing navigation locks:', error);
+      }
+    };
+    
+    setupTabsNavigation();
   }, []);
 
   // Tab configuration
@@ -68,16 +85,16 @@ function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Health Coaches',
           headerShown: false,
           tabBarIcon: ({ focused, size, color }) => (
             <View style={styles.iconContainer}>
               {focused ? (
                 <View style={styles.activeTab}>
-                  <Ionicons name="home" size={size} color="#6366f1" />
+                  <Ionicons name="people" size={size} color="#6366f1" />
                 </View>
               ) : (
-                <Ionicons name="home-outline" size={size} color={color} />
+                <Ionicons name="people-outline" size={size} color={color} />
               )}
             </View>
           ),
@@ -96,6 +113,24 @@ function TabLayout() {
                 </View>
               ) : (
                 <Ionicons name="heart-outline" size={size} color={color} />
+              )}
+            </View>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="ask"
+        options={{
+          title: 'Ask Coach AI',
+          headerShown: false,
+          tabBarIcon: ({ focused, size, color }) => (
+            <View style={styles.iconContainer}>
+              {focused ? (
+                <View style={styles.activeTab}>
+                  <Ionicons name="fitness" size={size} color="#6366f1" />
+                </View>
+              ) : (
+                <Ionicons name="fitness-outline" size={size} color={color} />
               )}
             </View>
           ),

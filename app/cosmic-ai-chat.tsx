@@ -23,7 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePurchases } from '../context/PurchaseContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRandomHealthCoachesForSpecialty } from '../services/health-coach-data';
-import { useAppNavigation, navigate } from '../lib/navigation';
+import { useAppNavigation, navigate, navigateToAddFunds } from '../lib/navigation';
 
 type Message = {
   id: string;
@@ -299,17 +299,40 @@ export default function HealthCoachChatScreen() {
     );
   };
 
-  // Simplified back function
-  const handleBackPress = useCallback(() => {
-    console.log('Navigating back to home from cosmic AI chat');
-    router.replace('/(tabs)');
-  }, [router]);
+  // Set up safe navigation
+  useEffect(() => {
+    const setupNavigation = async () => {
+      try {
+        // Clear any specific navigation flags related to this screen
+        await AsyncStorage.removeItem('is_navigating');
+        await AsyncStorage.removeItem('navigation_started_at');
+        
+        console.log('CosmicAIChatScreen: Ready for safe navigation');
+      } catch (error) {
+        console.error('CosmicAIChatScreen: Error setting up navigation:', error);
+      }
+    };
+    
+    setupNavigation();
+    
+    // Clean up on unmount - to be safe, clear any navigation locks
+    return () => {
+      console.log('CosmicAIChatScreen unmounting, clearing navigation locks');
+      AsyncStorage.removeItem('is_navigating')
+        .catch(error => console.error('CosmicAIChatScreen: Failed to clear locks:', error));
+    };
+  }, []);
+
+  // Improved back function
+  const handleBackPress = useCallback(async () => {
+    // Use replace to ensure we don't build up the navigation stack
+    await navigate('/(tabs)', { replace: true });
+  }, []);
   
-  // Simplified add funds function
-  const handleAddFunds = useCallback(() => {
-    console.log('Navigating to add funds from cosmic AI chat');
-    router.push('/settings/add-funds');
-  }, [router]);
+  // Improved add funds function
+  const handleAddFunds = useCallback(async () => {
+    await navigateToAddFunds();
+  }, [navigateToAddFunds]);
 
   if (balance === 0) {
     return (

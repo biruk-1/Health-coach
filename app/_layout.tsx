@@ -15,7 +15,7 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import React from 'react';
 import { copyHealthCoachCSVToFileSystem } from '../services/health-coach-data';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { navigate, publicRoutes, personalizationRoutes } from '../lib/navigation';
+import { navigate, publicRoutes, personalizationRoutes, clearNavigationLocks } from '../lib/navigation';
 
 function StripeEnabledScreens({ children }: { children: React.ReactElement }) {
   const segments = useSegments();
@@ -78,8 +78,7 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
   const isInitialMount = useRef(true);
   const router = useRouter();
   const [isFirstTimeUser, setIsFirstTimeUser] = useState(false);
-  const hasRedirectedToTabs = useRef(false);
-  const navigationActionsCount = useRef(0);
+  const [navLockCleared, setNavLockCleared] = useState(false);
 
   // First-time user check
   useEffect(() => {
@@ -107,19 +106,23 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
     checkFirstTimeUser();
   }, []);
 
-  // Force navigation to tabs for authenticated users on app startup - but limit to once
+  // Clear any stale navigation locks on startup
   useEffect(() => {
-    if (user && !hasRedirectedToTabs.current) {
-      // Set a small delay to avoid race conditions and screen flashes
-      const timer = setTimeout(() => {
-        console.log('Authenticated user detected on app startup, redirecting to tabs');
-        hasRedirectedToTabs.current = true;
-        navigate('/(tabs)', { replace: true });
-      }, 300);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [user]);
+    const clearStaleNavigationLocks = async () => {
+      if (!navLockCleared) {
+        try {
+          // Clear any existing navigation locks to start fresh
+          await clearNavigationLocks();
+          setNavLockCleared(true);
+          console.log('Cleared stale navigation locks on startup');
+        } catch (error) {
+          console.error('Error clearing navigation locks on startup:', error);
+        }
+      }
+    };
+    
+    clearStaleNavigationLocks();
+  }, [navLockCleared]);
 
   // Simple navigation check that runs only when routes change
   useEffect(() => {
@@ -127,39 +130,55 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
       // Skip initial render
       if (isInitialMount.current) {
         isInitialMount.current = false;
-          return;
-        }
+        return;
+      }
         
-      // Avoid repeated navigation in the same update cycle
-      navigationActionsCount.current += 1;
-      const currentCount = navigationActionsCount.current;
-      
-      // Small delay to avoid navigation race conditions
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // If another navigation action happened during our delay, skip this one
-      if (currentCount !== navigationActionsCount.current) {
-        console.log('Skipping navigation due to newer navigation action');
-            return;
-          }
-          
       // Current route segment (top level)
       const currentSegment = segments[0] || '';
       console.log(`Navigation check for route: ${currentSegment}`);
 
+      // Skip navigation checks if already navigating
+      const isNavigating = await AsyncStorage.getItem('is_navigating');
+      if (isNavigating) {
+        console.log(`Skipping navigation check: already navigating to ${isNavigating}`);
+        return;
+      }
+
+      // For first-time users, be more permissive with navigation
+      if (isFirstTimeUser) {
+        console.log('First-time user navigation - allowing more flexibility');
+        // Allow coach details, cosmic AI, and other screens for first-time users
+        if (currentSegment === '[id]' || currentSegment === 'cosmic-ai-chat' || 
+            currentSegment === 'cosmic-ai-subscription') {
+          return; // Allow these routes for first-time users
+        }
+      }
+
       // AUTHENTICATION CHECK
       // Not logged in users should be on public routes only
-        if (!user) {
+      if (!user) {
         const isPublicRoute = publicRoutes.includes(currentSegment);
-          if (!isPublicRoute) {
+        if (!isPublicRoute) {
           console.log('User not authenticated, redirecting to login');
           navigate('/login', { replace: true });
           return;
         }
       }
 
+      // ONBOARDING CHECK
+      // Logged in but not onboarded users should complete onboarding
+      if (user && !isOnboarded) {
+        const isPersonalizationRoute = personalizationRoutes.includes(currentSegment);
+        if (!isPersonalizationRoute && currentSegment !== 'login') {
+          console.log('User not onboarded, redirecting to onboarding');
+          navigate('/onboarding-select', { replace: true });
+          return;
+        }
+      }
+
       // ROOT NAVIGATION
       // If no route is specified and user is authenticated, go to tabs
+      // No need to check onboarded status - returning users should always go to home
       if (user && segments.length === 0) {
         console.log('Authenticated user at root, going to tabs');
         navigate('/(tabs)', { replace: true });
@@ -167,7 +186,7 @@ function NavigationGuard({ children }: { children: React.ReactNode }) {
     };
 
     handleNavigation();
-  }, [segments, user, isFirstTimeUser]);
+  }, [segments, user, isOnboarded, isFirstTimeUser]);
 
   return <>{children}</>;
 }
