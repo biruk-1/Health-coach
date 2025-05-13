@@ -23,6 +23,7 @@ type AuthContextType = {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (data: { email: string; password: string; fullName: string; phone?: string; role?: 'user' | 'psychic' }) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  refreshUserData: () => Promise<boolean>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -237,6 +238,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const refreshUserData = async (): Promise<boolean> => {
+    try {
+      console.log('Refreshing user data from AuthContext');
+      // Force refresh the session to get latest user data
+      const { data, error } = await supabase.auth.refreshSession();
+      
+      if (error || !data.session) {
+        console.error('Session refresh failed in refreshUserData:', error?.message || 'No session returned');
+        return false;
+      }
+      
+      // Update our state with the refreshed session
+      setSession(data.session);
+      const userData = updateUserState(data.session.user);
+      
+      if (userData) {
+        // Store the updated data in AsyncStorage
+        await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+          session: data.session,
+          user: userData
+        }));
+        console.log('User data refreshed successfully in AuthContext');
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error refreshing user data in AuthContext:', error);
+      return false;
+    }
+  };
+
   const logNavigationEvent = (action: string, destination: string, details: Record<string, unknown> = {}) => {
     console.log(`[Navigation] ${action} to ${destination}`, details);
   };
@@ -249,6 +282,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       register,
       logout,
+      refreshUserData
     }}>
       {children}
     </AuthContext.Provider>

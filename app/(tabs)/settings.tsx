@@ -3,12 +3,13 @@
 // See fix-navigation.md for more details
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, SafeAreaView, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from './../../context/AuthContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { usePurchases } from '../../context/PurchaseContext';
 
 type SettingItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -24,7 +25,11 @@ const isLargeScreen = width > 428;
 export default function SettingsScreen() {
   const router = useRouter();
   const { logout } = useAuth();
-  const [balance, setBalance] = useState(0);
+  const { balance, refreshBalance } = usePurchases();
+
+  useEffect(() => {
+    refreshBalance();
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -41,8 +46,8 @@ export default function SettingsScreen() {
   const settings: SettingItem[] = [
     {
       icon: 'wallet',
-      title: 'Add Funds',
-      description: 'Add money to your account balance',
+      title: 'Add Credits',
+      description: 'Add credits to your account balance',
       action: () => router.navigate('/settings/add-funds'),
     },
     {
@@ -90,14 +95,14 @@ export default function SettingsScreen() {
         <View style={styles.balanceCard}>
           <View style={styles.balanceHeader}>
             <Ionicons name="wallet-outline" size={24} color="#6366f1" />
-            <Text style={styles.balanceTitle}>Current Balance</Text>
+            <Text style={styles.balanceTitle}>Credit Balance</Text>
           </View>
-          <Text style={styles.balanceAmount}>${balance.toFixed(2)}</Text>
+          <Text style={styles.balanceAmount}>{balance.toFixed(0)} credits</Text>
           <TouchableOpacity
             style={styles.addFundsButton}
             onPress={() => router.navigate('/settings/add-funds')}
           >
-            <Text style={styles.addFundsText}>Add Funds</Text>
+            <Text style={styles.addFundsText}>Add Credits</Text>
             <Ionicons name="add-circle" size={20} color="#ffffff" style={styles.addIcon} />
           </TouchableOpacity>
         </View>

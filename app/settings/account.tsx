@@ -25,7 +25,7 @@ import { usePurchases } from '../../context/PurchaseContext';
 
 export default function AccountScreen() {
   const router = useRouter();
-  const { user, session } = useAuth();
+  const { user, session, refreshUserData } = useAuth();
   const { balance, refreshBalance } = usePurchases();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -99,13 +99,13 @@ export default function AccountScreen() {
 
   const loadUserData = async () => {
     try {
-      // Prevent excessive load attempts
-      if (loadAttempts.current >= 2) {
-        console.log('Maximum load attempts reached, stopping to prevent infinite loop');
-        setLoading(false);
+      // If loading is already in progress, don't start another load
+      if (loading && loadAttempts.current > 0) {
+        console.log('Loading already in progress, skipping');
         return false;
       }
       
+      // Track load attempts to prevent excessive API calls
       loadAttempts.current += 1;
       setLoading(true);
       
@@ -116,8 +116,8 @@ export default function AccountScreen() {
       
       console.log('Loading user data for user ID:', user.id, 'Attempt:', loadAttempts.current);
       
-      // Use user metadata directly when possible
-      if (user.fullName) {
+      // First try using data from AuthContext if this is initial load
+      if (loadAttempts.current === 1 && user.fullName) {
         console.log('Using cached user data from auth context');
         const updatedForm = {
           fullName: user.fullName || '',
@@ -131,30 +131,66 @@ export default function AccountScreen() {
         if (!isUnmounted.current) {
           setOriginalForm({ ...updatedForm });
           setForm({ ...updatedForm });
+          setLoading(false);
+          
+          // Continue with API fetch in background for full details
+          setTimeout(() => loadFullUserData(), 100);
+          return true;
         }
-        
-        setLoading(false);
-        return true;
       }
       
-      // Only make API call if we don't have the data already
-      const response = await api.auth.me();
+      // If we reach here, we either need all user data or this is a refresh
+      await loadFullUserData();
+      return true;
+    } catch (error: any) {
+      console.error('Error loading user data:', error);
       
-      if (response.error) {
-        throw new Error(response.error.message);
+      // Check if it's an authentication error
+      if (error.message && (error.message.includes('authentication') || error.message.includes('authenticated'))) {
+        Alert.alert(
+          'Authentication Error',
+          'Your session has expired. Please log in again.',
+          [{ text: 'OK', onPress: () => router.navigate('/login') }]
+        );
+      } else {
+        Alert.alert('Error', 'Failed to load account information: ' + error.message);
+      }
+      return false;
+    } finally {
+      if (!isUnmounted.current) {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Separate function to load complete user data from API
+  const loadFullUserData = async () => {
+    try {
+      // Add a loading timeout as a fallback
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Loading user data timed out')), 8000);
+      });
+
+      // Create the API call promise
+      const apiPromise = api.auth.me();
+      
+      // Race them - whichever completes first wins
+      const response = await Promise.race([apiPromise, timeoutPromise]);
+      
+      if (!response || response.error) {
+        throw new Error(response?.error?.message || 'Failed to fetch user data');
       }
       
       const userData = response.data;
       if (!userData) throw new Error('No user data received');
 
-      console.log('User data received:', JSON.stringify(userData));
+      console.log('User data received from API');
 
       // Parse dates and times properly
       let birthDate = new Date();
       if (userData.birthDate) {
         try {
           birthDate = new Date(userData.birthDate);
-          console.log('Parsed birth date:', birthDate);
         } catch (e) {
           console.error('Failed to parse birth date:', userData.birthDate, e);
         }
@@ -177,7 +213,6 @@ export default function AccountScreen() {
           } else if (userData.birthTime instanceof Date) {
             birthTime = userData.birthTime;
           }
-          console.log('Parsed birth time:', birthTime);
         } catch (e) {
           console.error('Failed to parse birth time:', userData.birthTime, e);
         }
@@ -192,8 +227,6 @@ export default function AccountScreen() {
         birthTime: isNaN(birthTime.getTime()) ? new Date() : birthTime,
         birthLocation: userData.birthLocation || '',
       };
-
-      console.log('Setting form data to:', JSON.stringify(updatedForm));
       
       // Check if component is still mounted before updating state
       if (!isUnmounted.current) {
@@ -203,28 +236,38 @@ export default function AccountScreen() {
         // Force a form update by creating a new object
         setForm({ ...updatedForm });
       }
-      
-      return true;
     } catch (error) {
-      console.error('Error loading user data:', error);
-      
-      // Check if it's an authentication error
-      if (error.message && (error.message.includes('authentication') || error.message.includes('authenticated'))) {
-        Alert.alert(
-          'Authentication Error',
-          'Your session has expired. Please log in again.',
-          [{ text: 'OK', onPress: () => router.navigate('/login') }]
-        );
-      } else {
-        Alert.alert('Error', 'Failed to load account information: ' + error.message);
-      }
-      return false;
-    } finally {
-      if (!isUnmounted.current) {
-        setLoading(false);
-      }
+      console.error('Error in loadFullUserData:', error);
+      throw error;
     }
   };
+
+  // Add this useEffect to show a timeout alert if loading takes too long
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => {
+        if (loading && !isUnmounted.current) {
+          console.log('Loading is taking longer than expected');
+          // Fallback to show something even if loading is slow
+          if (user && user.fullName && !isUnmounted.current) {
+            setForm({
+              ...form,
+              fullName: user.fullName,
+              email: user.email || '',
+            });
+            setOriginalForm({
+              ...originalForm,
+              fullName: user.fullName,
+              email: user.email || '',
+            });
+            setLoading(false);
+          }
+        }
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading]);
 
   const handleSave = async () => {
     try {
@@ -269,39 +312,48 @@ export default function AccountScreen() {
       // Check for success flag or errors
       if (!response.success || response.error) {
         // Special handling for SMS provider errors
-        if (response.error?.message.includes('SMS provider')) {
+        if (response.error?.message?.includes('SMS provider')) {
           throw new Error('Phone number update failed. The app is not configured for SMS verification yet, but your other changes have been saved.');
         }
         throw new Error(response.error?.message || 'Failed to update profile');
       }
-
-      // Wait a moment for the update to propagate
-      await new Promise(resolve => setTimeout(resolve, 800));
       
-      try {
-        // Try to reload user data to confirm changes, but don't fail if this doesn't work
-        console.log('Update successful, attempting to reload user data to confirm changes...');
-        const success = await loadUserData();
-        
-        if (!success) {
-          console.log('Could not reload user data, but your changes have been saved.');
+      console.log('Update successful! Response data:', JSON.stringify(response.data));
+      
+      // Start the session refresh process in the background
+      const refreshPromise = (async () => {
+        try {
+          // Force a session refresh to make sure we have the latest user data
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError) {
+            console.error('Failed to refresh session after profile update:', refreshError);
+          } else {
+            console.log('Session refreshed successfully with new user data');
+            
+            // Update global user data
+            if (refreshUserData) {
+              await refreshUserData();
+            }
+          }
+        } catch (e) {
+          console.error('Error in background refresh:', e);
         }
-      } catch (reloadError) {
-        // Don't throw an error here, just log it
-        console.warn('Could not verify profile update, but your changes have been saved:', reloadError);
-      }
-
-      // Show success message regardless of verification result
+      })();
+      
+      // Show success message and redirect back to settings
       Alert.alert(
         'Success', 
         'Your profile has been updated successfully', 
-        [{ text: 'OK' }]
+        [{ 
+          text: 'OK',
+          onPress: () => {
+            // Navigate back to settings
+            router.navigate('/(tabs)/settings');
+          }
+        }]
       );
-      
-      // Update the form's original values to match the current values to prevent
-      // the modified state from persisting unnecessarily
-      setOriginalForm({ ...form });
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Profile update error:', error);
       
       // Check if it's an authentication error
@@ -459,6 +511,17 @@ export default function AccountScreen() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366f1" />
           <Text style={styles.loadingText}>Loading account information...</Text>
+          {loadAttempts.current > 1 && (
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => {
+                loadAttempts.current = 0;
+                loadUserData();
+              }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -1011,5 +1074,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     borderColor: '#e2e8f0',
     borderWidth: 1,
+  },
+  loadingSubText: {
+    color: '#64748b',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+    marginHorizontal: 20,
+  },
+  retryButton: {
+    marginTop: 20,
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  retryButtonText: {
+    color: '#6366f1',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

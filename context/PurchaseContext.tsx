@@ -12,17 +12,17 @@ import { REVENUECAT_API_KEY_IOS, REVENUECAT_API_KEY_ANDROID } from '@env';
 // Define credit packs - Ensure these SKUs match App Store Connect exactly
 export const CREDIT_PACKS = {
   small: {
-    sku: 'com.biruk123.boltexponativewind.small_credit_pack',
+    sku: 'com.biruk123.healthcoach.small_credit_pack',
     amount: 19.99,
     credits: 20,
   },
   medium: {
-    sku: 'com.biruk123.boltexponativewind.medium_credit_pack',
+    sku: 'com.biruk123.healthcoach.medium_credit_pack',
     amount: 49.99,
     credits: 55,
   },
   large: {
-    sku: 'com.biruk123.boltexponativewind.large_credit_pack',
+    sku: 'com.biruk123.healthcoach.large_credit_pack',
     amount: 99.99,
     credits: 120,
   },
